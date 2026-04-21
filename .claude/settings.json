@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"RAPPEL : Met à jour la section ÉTAT ACTUEL dans CLAUDE.md si une décision ou étape a été franchie cette session.\"}'",
+            "statusMessage": "Vérification CLAUDE.md..."
+          }
+        ]
+      }
+    ]
+  }
+}
