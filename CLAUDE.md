@@ -10,18 +10,35 @@
 
 ## ÉTAT ACTUEL — mis à jour le 2026-04-22
 
-**Phase BMAD :** PRD validé — en attente de Winston (Architecte)
+**Phase BMAD :** Architecture validée — en attente de Bob (SM) pour le découpage Epics/Stories
 
 **Dernières décisions prises :**
-- CLAUDE.md créé comme source de vérité unique du projet
-- Alasource = seul dossier de travail (plus de contexte éparpillé dans les mémoires globales)
+- CLAUDE.md = source de vérité unique, GitHub = repo `Claude` connecté via SSH
+- Travail par plan d'action, ÉTAT ACTUEL mis à jour après chaque plan
 - Stack validée : FastAPI + SQLite + HTML/JS vanilla + Chart.js
-- Portefeuilles : 3 portefeuilles isolés, capital fictif configurable, pas de transfert inter-stratégies
+- Portefeuilles : 3 isolés, capital fictif configurable, pas de transfert inter-stratégies
+- Architecture monolithique locale (pas de cloud, pas de microservices)
+- FastAPI sert aussi le frontend (StaticFiles) — un seul processus
+- Scheduler : APScheduler intégré (pas Celery), scraping 06h00 quotidien
+- Playwright pour Betclic (async, JS), Requests+BS4 pour FBref/Tennis Abstract
+- Stratégies A/B/C = modules totalement isolés dans le code
 
-**Prochaine étape :** Appeler Winston (Architecte BMAD) pour produire le document d'architecture technique
+**Document d'architecture :** `docs/planning/architecture.md` ✅
+
+**Prochaine étape :** Bob (SM) → découpage en Epics/Stories
+
+**Ordre des Epics prévu :**
+1. Epic 0 — Setup projet (structure, BDD, FastAPI base)
+2. Epic 1 — Scrapers (Betclic, FBref, Tennis Abstract)
+3. Epic 2 — Modèles (Dixon-Coles, Poisson, Markov)
+4. Epic 3 — Stratégie A (Boosts EV)
+5. Epic 4 — Stratégie B (Value betting niches)
+6. Epic 5 — Stratégie C (CLV tracker)
+7. Epic 6 — Dashboard + comparaison portefeuilles
+8. Epic 7 — Moteur d'apprentissage
+9. Epic 8 — Documentation + tooltips
 
 **Ce qui n'est PAS encore fait :**
-- Document d'architecture (Winston)
 - Découpage Epics/Stories (Bob, SM)
 - Aucune ligne de code écrite
 
