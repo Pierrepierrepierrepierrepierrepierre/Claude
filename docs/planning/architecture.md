@@ -56,6 +56,7 @@ bettingedge/
 │
 ├── backend/
 │   ├── scrapers/
+│   │   ├── backup.py            # Backup SQLite avant chaque scrape
 │   │   ├── betclic.py           # Playwright — cotes + boosts
 │   │   ├── fbref.py             # Requests/BS4 — stats foot
 │   │   └── tennis_abstract.py   # Requests — stats tennis
@@ -166,10 +167,26 @@ CREATE TABLE bets (
     stake           REAL NOT NULL,
     portfolio_before REAL NOT NULL,
     portfolio_after  REAL,
-    features_json   TEXT,                   -- JSON: λ, ρ, κ, surface, forme...
+    features_json   TEXT NOT NULL,          -- JSON validé via schéma Pydantic BetFeatures
     created_at      TEXT NOT NULL,
     resolved_at     TEXT
 );
+```
+
+**Schéma Pydantic `BetFeatures` (validé à l'écriture) :**
+```python
+class BetFeatures(BaseModel):
+    lambda_home: float | None = None   # Dixon-Coles
+    lambda_away: float | None = None
+    rho: float | None = None
+    kappa: float = 0.25
+    surface: str | None = None         # tennis
+    league: str | None = None
+    forme_5: list[int] | None = None   # [1,0,1,1,0] = 5 derniers matchs
+    h2h_recent: float | None = None
+    arbitre: str | None = None
+    ace_rate_a: float | None = None    # tennis
+    ace_rate_b: float | None = None
 ```
 
 ### Table `model_params`
@@ -195,6 +212,8 @@ CREATE TABLE odds_history (
     odds            REAL NOT NULL,
     recorded_at     TEXT NOT NULL
 );
+-- Index critique pour Stratégie C (CLV)
+CREATE INDEX idx_odds_event ON odds_history(event_id, recorded_at);
 ```
 
 ### Table `niche_performance`
@@ -218,6 +237,18 @@ CREATE TABLE portfolios (
     n_bets          INTEGER DEFAULT 0,
     updated_at      TEXT NOT NULL
 );
+```
+
+### Table `scraper_logs`
+```sql
+CREATE TABLE scraper_logs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    scraper     TEXT NOT NULL,      -- 'betclic', 'fbref', 'tennis_abstract'
+    status      TEXT NOT NULL,      -- 'ok', 'error', 'captcha', 'timeout'
+    message     TEXT,
+    ran_at      TEXT NOT NULL
+);
+-- Dashboard affiche alerte rouge si dernière entrée betclic status != 'ok'
 ```
 
 ---
@@ -274,16 +305,20 @@ def calibration_curve(bets: list[dict], n_bins: int = 10) -> dict:
 ## 6. Scraping — Stratégie Anti-Ban
 
 ### Betclic (Playwright)
-- Délai aléatoire entre chaque requête : `random.uniform(3, 8)` secondes
+- **Mode headed** (navigateur visible) — headless détecté trivialement par Betclic
+- **Heure aléatoire** : fenêtre 05h45–06h30, pas d'heure fixe (`random.uniform(-15, 30)` min)
+- Délai aléatoire entre chaque action : `random.uniform(3, 8)` secondes
 - User-agent rotatif (liste de 5 UAs desktop courants)
-- Session Playwright persistante (cookies) — pas de re-login à chaque scrape
-- Fallback : saisie manuelle via `/api/strategy-a/calculate` si scraper bloqué
-- Fréquence : 1× par jour à 06h00 (APScheduler)
+- Session Playwright persistante (cookies sauvegardés) — pas de re-login à chaque scrape
+- **Détection CAPTCHA** : si page contient un CAPTCHA → status `captcha` dans `scraper_logs` + fallback saisie manuelle immédiat
+- **Fallback saisie manuelle** : `/api/strategy-a/calculate` toujours disponible si scraper bloqué
+- Log systématique dans `scraper_logs` après chaque run (succès ou échec)
 
 ### FBref / Tennis Abstract (Requests + BeautifulSoup)
 - Pas de JavaScript requis → requests simple
 - Cache local 24h : si données < 24h, pas de re-scrape
 - Headers : `User-Agent` desktop standard, `Referer` correct
+- **Bootstrap Dixon-Coles** : FBref scraper lancé en Epic 1 pour calibrer le modèle sur la saison en cours AVANT le premier pari — les paramètres 1997 ne sont qu'un fallback d'urgence
 
 ---
 
@@ -332,15 +367,21 @@ Chart.js LineChart({
 pip install -r requirements.txt
 playwright install chromium
 
-# Initialisation BDD
+# Initialisation BDD + bootstrap Dixon-Coles (obligatoire avant premier pari)
 python -m backend.db.seed
+python -m backend.scrapers.fbref --bootstrap   # scrape saison en cours → calibre DC
 
-# Lancement
+# DEV (sans scheduler — évite double scraping sur --reload)
 uvicorn main:app --reload --port 8000
+
+# PROD (avec scheduler APScheduler actif)
+uvicorn main:app --port 8000
 
 # Accès
 http://localhost:8000
 ```
+
+> **Important** : ne jamais utiliser `--reload` avec le scheduler actif — chaque rechargement redémarre APScheduler et peut déclencher un double scraping.
 
 ---
 
@@ -363,9 +404,13 @@ http://localhost:8000
 
 | Risque | Impact | Mitigation |
 |--------|--------|-----------|
-| Playwright bloqué par Betclic | Élevé | Fallback saisie manuelle + délais aléatoires |
-| Dixon-Coles mal calibré au démarrage | Moyen | Seed avec paramètres Dixon-Coles 1997 (paper) |
-| SQLite corrompu | Faible | Backup automatique du fichier `.db` avant chaque scrape |
+| Playwright détecté par Betclic | Élevé | Headed mode + heure aléatoire + détection CAPTCHA + fallback manuel |
+| Dixon-Coles mal calibré au démarrage | Élevé | Bootstrap FBref saison courante obligatoire avant premier pari (Epic 1) |
+| Erreur scraper silencieuse | Moyen | `scraper_logs` + alerte rouge dashboard si status != 'ok' |
+| Full scan SQLite sur CLV queries | Moyen | Index `idx_odds_event` sur `odds_history` |
+| `features_json` incohérent entre paris | Moyen | Schéma Pydantic `BetFeatures` validé à l'écriture |
+| SQLite corrompu | Faible | `backup.py` appelé avant chaque scrape |
+| Double scraping sur --reload dev | Faible | Séparer mode dev (sans scheduler) et prod |
 | Port 8000 occupé | Faible | Configurable via `.env` |
 | Drift du modèle non détecté | Moyen | Alerte Brier Score > 0.22 affichée sur dashboard |
 
