@@ -101,12 +101,30 @@
 - `POST /api/simulation/resolve-bet` : `odds_close` désormais optionnel — auto-fetch Pinnacle via `features_json` (event_name + league + outcome) si omis.
 - Frontend : `frontend/js/strategy-b.js` affiche colonne "Évol." avec flèche ↘ verte (cote baisse = sharp money sur cette issue) / ↗ rouge.
 
-**Bugs résiduels identifiés à fixer :**
-1. Tennis sans params → P=50/50 → faux value à +370% (skip à ajouter dans pipeline)
-2. Trop de "Nul" en value bet (DC simplifié sous-estime corrélation home/draw)
-3. EV anormalement élevés > 30% à capper (safety)
+**Plan A — 3 bugs résiduels :** ✅ corrigés (2026-04-23)
+1. Tennis sans params → skip dans `analyze_tennis` si ni A ni B n'a d'ace_rate connu
+2. Draws over-prédits → seuil EV +0.15 supplémentaire pour "Nul" + recalibration MLE complète
+3. EV anormaux → cap à 0.50 (>50% = modèle suspect, on skip)
 
-**Prochaine étape :** fix les 3 bugs ci-dessus avant Epic 7 (apprentissage).
+**MLE recalibration complète :** ✅ (2026-04-23)
+- `backend/scrapers/fbref_mle.py` : recalibration Dixon-Coles MLE par ligue (~3 min total top-5 + L2)
+- gamma=1.22 (vs 1.20 hardcodé), rho=-0.04 (vs -0.13 — moins négatif que prévu)
+- 114 équipes recalibrées, distribution Nul recos 42% → 15% (aligné réalité ~25%)
+
+**Plan B chunk 1 — pipeline horizon + cap :** ✅ (2026-04-23)
+- `pipeline.run_pipeline(horizon_hours=48, top_k=20)` : filtre événements dont `event_date` est dans la fenêtre, trie par EV décroissante, garde top_k
+- Wipe + bulk insert (un même match peut avoir plusieurs value bets sur outcomes différents — plus de fusion d'upsert)
+- Résultat : 20 recos/jour automatiquement triées par EV ✅ objectif "20 recos/jour" atteint en volume
+
+**Bloqueur connu pour la diversité des recos :**
+- Betclic scraper ne capture actuellement que 1X2 (foot) et match-winner (tennis)
+- Champs OU/AH/BTTS dans le schéma OddsHistory mais 0 événement les remplit (parser DOM ne lit que la page de listing, pas la page match)
+- → 100% des 20 recos sont sur "1X2" (foot) ou "vainqueur" (tennis)
+
+**Prochaine étape (au choix) :**
+A. Étendre Betclic aux marchés secondaires (corners, BTTS, cartons, aces) — 1-2j, gros gain en diversité
+B. Epic 7 (Moteur d'apprentissage : Brier glissant, Bayesian update, error analysis)
+C. Wirer la Stratégie B niches dans le pipeline avec ce qu'on a déjà (BTTS via DC sans cote Betclic = juste prédiction sans value calc)
 
 **Ordre des Epics prévu :**
 1. Epic 0 — Setup projet (structure, BDD, FastAPI base)
