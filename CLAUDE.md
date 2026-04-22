@@ -43,7 +43,17 @@
 - scheduler.py : APScheduler, heures aléatoires, mode prod (BETTINGEDGE_PROD=1)
 - main.py : routes /api/dashboard, /api/scraper/status|run, /api/simulation/*
 
-**Prochaine étape :** Epic 2 — Moteur de modèles (Dixon-Coles, Poisson, Markov, core)
+**Epic 2 — Moteur de modèles :** ✅ complet (2026-04-22)
+- dixon_coles.py : modèle Poisson bivarié avec τ correction, MLE L-BFGS-B, helpers prob
+- poisson.py : PMF/CDF génériques, λ_aces, λ_corners
+- markov_tennis.py : prob_game, prob_set, prob_match (BO3/BO5), expected_service_games
+- devig.py : de-vigging multiplicatif, vig(), consensus multi-marchés pondéré
+- ev.py : ev(), value(), clv(), is_positive()
+- kelly.py : kelly_fraction (κ=0.25), recommended_stake (capped 5%)
+- risk_factor.py : RF composite 5 dimensions — RF = 0.30×F_modèle + 0.20×F_ev + 0.15×F_variance + 0.20×F_calib + 0.15×F_clv
+- Tests : tous les modules passent les tests unitaires ✅
+
+**Prochaine étape :** Epic 3 — Stratégie A (Boosts EV)
 
 **Ordre des Epics prévu :**
 1. Epic 0 — Setup projet (structure, BDD, FastAPI base)
