@@ -361,33 +361,53 @@ def analyze_boost_standalone(event: OddsHistory, balance_a: float) -> list[dict]
 
 # ── Runner principal ──────────────────────────────────────────────────────────
 
-def run_pipeline(db: Session) -> int:
+def run_pipeline(
+    db: Session,
+    horizon_hours: int = 48,
+    top_k: int = 20,
+) -> int:
     """
-    Tourne le pipeline d'analyse sur tous les matchs des dernières 24h.
-    Génère et sauvegarde les recommandations en BDD.
-    Retourne le nombre de recommandations créées.
-    """
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    Tourne le pipeline d'analyse sur tous les matchs scrapés < 24h ET dont
+    `event_date` tombe dans la fenêtre [now, now + horizon_hours].
 
-    # Récupérer les événements récents
-    events = db.query(OddsHistory).filter(
-        OddsHistory.scraped_at >= cutoff
-    ).all()
+    À la fin, on garde au plus `top_k` recommandations triées par EV
+    décroissante (les meilleures de la journée). Les anciennes recos hors
+    top sont supprimées de la BDD.
+
+    Retourne le nombre de recommandations conservées.
+    """
+    now = datetime.now(timezone.utc)
+    scrape_cutoff = (now - timedelta(hours=24)).isoformat()
+    horizon_end = (now + timedelta(hours=horizon_hours)).isoformat()
+    horizon_start = now.isoformat()
+
+    # Événements scrapés récemment ET dont event_date est dans la fenêtre
+    events_q = db.query(OddsHistory).filter(OddsHistory.scraped_at >= scrape_cutoff)
+    events = []
+    for e in events_q.all():
+        # Garder si event_date manquant (sécurité) ou dans la fenêtre [now, now+horizon]
+        if not e.event_date:
+            events.append(e); continue
+        try:
+            # event_date au format ISO ou "YYYY-MM-DDTHH:MM:SS"
+            ed = e.event_date if "T" in e.event_date else e.event_date + "T00:00:00"
+            if horizon_start <= ed <= horizon_end:
+                events.append(e)
+        except Exception:
+            events.append(e)
 
     if not events:
         return 0
 
-    # Charger tous les paramètres une seule fois
     dc_params   = get_model_params(db, "dixon_coles")
     tennis_params = get_model_params(db, "tennis")
 
-    # Balances des portefeuilles
     port_a = get_portfolio(db, "A")
     port_b = get_portfolio(db, "B")
     balance_a = port_a.balance if port_a else 1000.0
     balance_b = port_b.balance if port_b else 1000.0
 
-    n_recos = 0
+    candidate_recos: list[dict] = []
 
     for event in events:
         try:
@@ -402,17 +422,29 @@ def run_pipeline(db: Session) -> int:
             elif event.sport == "tennis" and event.market_type == "1X2":
                 recos = analyze_tennis(event, tennis_params, balance_b, db)
 
-            for reco in recos:
-                _save_recommendation(db, reco)
-                n_recos += 1
+            candidate_recos.extend(recos)
 
         except Exception as e:
             print(f"Pipeline [WARN] {event.event_name}: {e}")
             continue
 
+    # Tri par EV décroissante, on garde les top_k
+    candidate_recos.sort(key=lambda r: r.get("ev", 0), reverse=True)
+    selected = candidate_recos[:top_k]
+
+    # Wipe les anciennes recos pour ne garder que la sélection actuelle
+    # (le pipeline reproduit la sélection complète à chaque run, pas besoin
+    # d'upsert — un même match peut avoir plusieurs value bets sur des
+    # outcomes différents dans la même niche "1x2")
+    db.query(Recommendation).delete()
     db.commit()
-    print(f"Pipeline terminé : {n_recos} recommandations sur {len(events)} événements")
-    return n_recos
+    for reco in selected:
+        db.add(Recommendation(**reco))
+    db.commit()
+    n_kept = len(selected)
+    print(f"Pipeline terminé : {len(candidate_recos)} candidates -> {n_kept} recos top-{top_k} "
+          f"(fenêtre {horizon_hours}h, {len(events)} événements analysés)")
+    return n_kept
 
 
 if __name__ == "__main__":
