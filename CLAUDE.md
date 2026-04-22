@@ -61,7 +61,14 @@
 - CSS : dark theme complété (cards, forms, result panel, badges, tooltips)
 - Tests : EV 9.67% sur boost 3.80 avec 1X2=[2.10,3.40,3.20] → mise 2.43€ (RF=0.28 Faible car 0 paris similaires) ✅
 
-**Prochaine étape :** Epic 4 — Stratégie B (Value Betting niches)
+**Epic 4 — Stratégie B (Value Betting) :** ✅ complet (2026-04-22)
+- strategy_b.py : 6 niches (corners, BTTS, cartons, aces, double fautes, tie-breaks)
+- Dispatcher kwargs filtré par inspect.signature — robuste aux paramètres inconnus
+- Routes API : POST /api/strategy-b/calculate, GET /api/strategy-b/bets (filtres sport/niche/surface)
+- Frontend : strategy-b.html (filtres dynamiques + calculateur multi-niche), strategy-b.js
+- CSS : filter-bar, btn-sm ajoutés
+
+**Prochaine étape :** Epic 5 — Stratégie C (CLV Tracker)
 
 **Ordre des Epics prévu :**
 1. Epic 0 — Setup projet (structure, BDD, FastAPI base)

@@ -372,3 +372,28 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 
 /* Empty state */
 .empty-state { color: var(--text-muted); font-size: 0.9rem; padding: 20px 0; }
+
+/* Filter bar */
+.filter-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.filter-bar select {
+  width: auto;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text);
+  cursor: pointer;
+}
+.btn-sm:hover { border-color: var(--accent); color: var(--accent); }

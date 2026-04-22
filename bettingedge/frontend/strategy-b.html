@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>BettingEdge — strategy-b</title>
+  <title>BettingEdge — Stratégie B : Value Betting</title>
   <link rel="stylesheet" href="/static/css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -17,10 +17,206 @@
     <a href="/learning">Apprentissage</a>
     <a href="/docs">Documentation</a>
   </nav>
+
   <main class="content">
-    <h1>Strategy-b</h1>
-    <p class="loading">Page en cours de développement — Epic correspondant à venir.</p>
+    <div class="page-header">
+      <h1>Stratégie B — Value Betting</h1>
+      <p class="subtitle">Marchés secondaires : corners, BTTS, cartons, aces, double fautes, tie-breaks</p>
+    </div>
+
+    <!-- Value bets actifs -->
+    <section class="card">
+      <div class="card-header">
+        <h2>Value bets actifs</h2>
+        <div class="filter-bar">
+          <select id="filter-sport" onchange="applyFilters()">
+            <option value="">Tous les sports</option>
+            <option value="football">Football</option>
+            <option value="tennis">Tennis</option>
+          </select>
+          <select id="filter-niche" onchange="applyFilters()">
+            <option value="">Toutes les niches</option>
+            <option value="corners">Corners</option>
+            <option value="btts">BTTS</option>
+            <option value="cartons">Cartons</option>
+            <option value="aces">Aces</option>
+            <option value="double_faults">Double fautes</option>
+            <option value="tiebreaks">Tie-breaks</option>
+          </select>
+          <select id="filter-surface" onchange="applyFilters()">
+            <option value="">Toute surface</option>
+            <option value="hard">Hard</option>
+            <option value="clay">Clay</option>
+            <option value="grass">Grass</option>
+          </select>
+          <button class="btn-secondary btn-sm" onclick="loadBets()">Actualiser</button>
+        </div>
+      </div>
+
+      <p class="loading" id="bets-loading">Chargement...</p>
+      <table class="data-table hidden" id="bets-table">
+        <thead>
+          <tr>
+            <th>Niche</th>
+            <th>Événement</th>
+            <th>Description</th>
+            <th>P estimée</th>
+            <th>Cote juste</th>
+            <th>Cote Betclic</th>
+            <th>Value <span class="tooltip-icon" data-tip="value">?</span></th>
+            <th>EV <span class="tooltip-icon" data-tip="ev">?</span></th>
+            <th>RF <span class="tooltip-icon" data-tip="rf">?</span></th>
+            <th>Mise</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="bets-body"></tbody>
+      </table>
+      <p class="empty-state hidden" id="bets-empty">
+        Aucun value bet actif. Le scraper doit avoir tourné et des marchés secondaires doivent être disponibles.
+      </p>
+    </section>
+
+    <!-- Calculateur manuel -->
+    <section class="card">
+      <div class="card-header">
+        <h2>Calculateur manuel</h2>
+        <span class="badge badge-blue">Toutes niches</span>
+      </div>
+
+      <form id="calc-form" onsubmit="calculate(event)">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Niche</label>
+            <select id="niche" onchange="onNicheChange()">
+              <option value="corners">Corners (foot)</option>
+              <option value="btts">BTTS (foot)</option>
+              <option value="cartons">Cartons (foot)</option>
+              <option value="aces">Aces (tennis)</option>
+              <option value="double_faults">Double fautes (tennis)</option>
+              <option value="tiebreaks">Tie-breaks (tennis)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Cote Betclic</label>
+            <input type="number" id="odds-betclic" step="0.01" min="1.01" placeholder="ex: 1.85" required>
+          </div>
+          <div class="form-group">
+            <label>Portefeuille</label>
+            <select id="portfolio"><option value="B">B (Value Betting)</option></select>
+          </div>
+        </div>
+
+        <!-- Champs foot -->
+        <div id="fields-foot">
+          <div class="form-section-title">Paramètres Football</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Équipe domicile</label>
+              <input type="text" id="home-team" placeholder="ex: Paris SG">
+            </div>
+            <div class="form-group">
+              <label>Équipe extérieure</label>
+              <input type="text" id="away-team" placeholder="ex: Marseille">
+            </div>
+            <div class="form-group" id="field-threshold">
+              <label>Seuil (ex: 9.5 corners)</label>
+              <input type="number" id="threshold" step="0.5" value="9.5">
+            </div>
+            <div class="form-group hidden" id="field-referee">
+              <label>Arbitre (slug)</label>
+              <input type="text" id="referee" placeholder="ex: clement_turpin">
+            </div>
+          </div>
+        </div>
+
+        <!-- Champs tennis -->
+        <div id="fields-tennis" class="hidden">
+          <div class="form-section-title">Paramètres Tennis</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Joueur A</label>
+              <input type="text" id="player-a" placeholder="ex: djokovic">
+            </div>
+            <div class="form-group">
+              <label>Joueur B</label>
+              <input type="text" id="player-b" placeholder="ex: alcaraz">
+            </div>
+            <div class="form-group">
+              <label>Surface</label>
+              <select id="surface">
+                <option value="hard">Hard</option>
+                <option value="clay">Clay</option>
+                <option value="grass">Grass</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Format</label>
+              <select id="best-of">
+                <option value="3">BO3</option>
+                <option value="5">BO5</option>
+              </select>
+            </div>
+            <div class="form-group" id="field-threshold-tennis">
+              <label>Seuil (aces / DF)</label>
+              <input type="number" id="threshold-tennis" step="0.5" value="22.5">
+            </div>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Brier Score modèle <span class="tooltip-icon" data-tip="rf">?</span></label>
+            <input type="number" id="brier-score" step="0.01" min="0" max="1" value="0.20">
+          </div>
+          <div class="form-group">
+            <label>Paris similaires</label>
+            <input type="number" id="n-similaires" min="0" value="0">
+          </div>
+          <div class="form-group">
+            <label>CLV moyen historique</label>
+            <input type="number" id="clv-mean" step="0.01" value="0.00">
+          </div>
+        </div>
+
+        <button type="submit" class="btn-primary">Calculer Value + Mise</button>
+      </form>
+
+      <div id="calc-result" class="result-panel hidden">
+        <div class="result-grid">
+          <div class="kpi-mini">
+            <span class="kpi-label">P estimée</span>
+            <span class="kpi-val" id="res-p">—</span>
+          </div>
+          <div class="kpi-mini">
+            <span class="kpi-label">Cote juste</span>
+            <span class="kpi-val" id="res-odds-fair">—</span>
+          </div>
+          <div class="kpi-mini">
+            <span class="kpi-label">Value <span class="tooltip-icon" data-tip="value">?</span></span>
+            <span class="kpi-val" id="res-value">—</span>
+          </div>
+          <div class="kpi-mini">
+            <span class="kpi-label">EV</span>
+            <span class="kpi-val" id="res-ev">—</span>
+          </div>
+          <div class="kpi-mini">
+            <span class="kpi-label">RF <span class="tooltip-icon" data-tip="rf">?</span></span>
+            <span class="kpi-val" id="res-rf">—</span>
+          </div>
+          <div class="kpi-mini">
+            <span class="kpi-label">Mise recommandée</span>
+            <span class="kpi-val" id="res-stake">—</span>
+          </div>
+        </div>
+        <div id="calc-verdict" class="verdict"></div>
+        <button class="btn-secondary" onclick="simulateBet()" style="margin-top:12px">
+          Simuler ce pari →
+        </button>
+      </div>
+    </section>
   </main>
+
   <script src="/static/js/core/api.js"></script>
   <script src="/static/js/core/tooltips.js"></script>
   <script src="/static/js/core/charts.js"></script>

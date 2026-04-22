@@ -256,6 +256,98 @@ def strategy_a_boosts():
         db.close()
 
 
+# ── Stratégie B — Value Betting niches ───────────────────────────────────────
+
+class NicheCalcRequest(BaseModel):
+    niche: str                             # "corners"|"btts"|"cartons"|"aces"|"double_faults"|"tiebreaks"
+    sport: str
+    odds_betclic: float
+    portfolio: str = "B"
+    n_similaires: int = 0
+    brier_score: float = 0.20
+    clv_mean: float = 0.0
+    # Foot
+    home_team: Optional[str] = None
+    away_team: Optional[str] = None
+    threshold: Optional[float] = None
+    referee: Optional[str] = None
+    # Tennis
+    player_a: Optional[str] = None
+    player_b: Optional[str] = None
+    surface: Optional[str] = None
+    best_of: int = 3
+
+
+@app.post("/api/strategy-b/calculate")
+def strategy_b_calculate(req: NicheCalcRequest):
+    from backend.strategies.strategy_b import NICHE_CALCULATORS
+    fn = NICHE_CALCULATORS.get(req.niche)
+    if not fn:
+        raise HTTPException(status_code=400, detail=f"Niche inconnue : {req.niche}")
+
+    import inspect
+    db: Session = SessionLocal()
+    try:
+        kwargs = req.model_dump(exclude_none=True)
+        kwargs.pop("niche", None)
+        kwargs.pop("sport", None)
+        # Renommer odds_betclic selon la niche
+        odds_key = {
+            "corners": "odds_over",
+            "btts": "odds_btts",
+            "cartons": "odds_over",
+            "aces": "odds_over",
+            "double_faults": "odds_over",
+            "tiebreaks": "odds_yes",
+        }.get(req.niche, "odds_over")
+        kwargs[odds_key] = kwargs.pop("odds_betclic")
+        kwargs["db"] = db
+        # Filtrer les kwargs non acceptés par la fonction cible
+        sig = inspect.signature(fn)
+        valid_keys = set(sig.parameters.keys())
+        kwargs = {k: v for k, v in kwargs.items() if k in valid_keys}
+        result = fn(**kwargs)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return {"status": "ok", "data": result}
+    finally:
+        db.close()
+
+
+@app.get("/api/strategy-b/bets")
+def strategy_b_bets(
+    sport: Optional[str] = None,
+    niche: Optional[str] = None,
+    surface: Optional[str] = None,
+    ev_min: float = 0.0,
+):
+    """
+    Retourne les value bets actifs depuis les données en BDD.
+    Pour l'instant retourne une liste vide si pas de données scrapers.
+    """
+    from backend.strategies.strategy_b import get_value_bets
+    db: Session = SessionLocal()
+    try:
+        # Les candidats viendront du scraper Betclic (marchés secondaires annotés)
+        # Pour l'instant, on expose l'endpoint prêt — données remplies par le scraper
+        candidates = []
+        results = get_value_bets(candidates, db, portfolio="B")
+
+        # Filtres
+        if sport:
+            results = [r for r in results if r.get("sport") == sport]
+        if niche:
+            results = [r for r in results if r.get("niche") == niche]
+        if surface:
+            results = [r for r in results if r.get("surface") == surface]
+        if ev_min > 0:
+            results = [r for r in results if r.get("ev", 0) >= ev_min]
+
+        return {"status": "ok", "data": results, "count": len(results)}
+    finally:
+        db.close()
+
+
 # ── Static files & pages ──────────────────────────────────────────────────────
 
 frontend_dir = os.path.join(os.path.dirname(__file__), "frontend")
