@@ -36,7 +36,14 @@
 - Backup automatique fonctionnel
 - Python à utiliser : `/c/Users/pierr/AppData/Local/Programs/Python/Python312/python`
 
-**Prochaine étape :** Epic 1 — Scrapers (FBref bootstrap prioritaire)
+**Epic 1 — Scrapers :** ✅ complet (2026-04-22)
+- fbref.py : scraping top 5 ligues + Ligue 2, calibration Dixon-Coles
+- tennis_abstract.py : ace rates + double fautes par joueur/surface ATP
+- betclic.py : Playwright headed, session persistante, anti-ban, détection CAPTCHA
+- scheduler.py : APScheduler, heures aléatoires, mode prod (BETTINGEDGE_PROD=1)
+- main.py : routes /api/dashboard, /api/scraper/status|run, /api/simulation/*
+
+**Prochaine étape :** Epic 2 — Moteur de modèles (Dixon-Coles, Poisson, Markov, core)
 
 **Ordre des Epics prévu :**
 1. Epic 0 — Setup projet (structure, BDD, FastAPI base)
