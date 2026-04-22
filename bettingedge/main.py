@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from typing import Optional
 from backend.db.database import engine, Base, SessionLocal
 from backend.db.crud import get_all_portfolios, get_last_scraper_status, get_bets
-from backend.db.models import ScraperLog
+from backend.db.models import ScraperLog, Recommendation
 from config import settings
 
 PROD = os.getenv("BETTINGEDGE_PROD", "0") == "1"
@@ -284,36 +284,34 @@ def strategy_a_calculate(req: BoostCalcRequest):
 @app.get("/api/strategy-a/boosts")
 def strategy_a_boosts():
     """
-    Retourne les boosts EV+ du dernier scraping Betclic.
-    Pour l'instant retourne une liste vide si pas de données — le scraper
-    doit avoir tourné et marqué des cotes comme is_boost=True.
+    Retourne les boosts EV+ du pipeline (vrais matchs Betclic).
+    Fallback sur le calcul manuel si le pipeline n'a pas encore tourné.
     """
-    from backend.db.models import OddsHistory
-    from backend.strategies.strategy_a import get_boost_opportunities
     db: Session = SessionLocal()
     try:
-        # Récupère les cotes marquées boost dans les dernières 24h
-        from datetime import datetime, timedelta
-        cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
-        rows = db.query(OddsHistory).filter(OddsHistory.scraped_at >= cutoff).all()
-        records = [
-            {
-                "event_name": r.event_name,
-                "market_type": r.market_type,
-                "sport": r.sport,
-                "odds_home": r.odds_home,
-                "odds_draw": r.odds_draw,
-                "odds_away": r.odds_away,
-                "is_boost": r.is_boost,
-                "boost_odds": r.boost_odds,
-                "normal_odds": r.normal_odds,
-                "outcome_index": r.outcome_index or 0,
-                "event_date": r.event_date,
-            }
-            for r in rows
-        ]
-        opportunities = get_boost_opportunities(db, records)
-        return {"status": "ok", "data": opportunities, "count": len(opportunities)}
+        from datetime import datetime, timedelta, timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        rows = db.query(Recommendation).filter(
+            Recommendation.strategy == "A",
+            Recommendation.generated_at >= cutoff,
+        ).order_by(Recommendation.value.desc()).all()
+
+        data = [{
+            "event":        r.event_name,
+            "sport":        r.sport,
+            "boost_odds":   r.odds_betclic,
+            "normal_odds":  r.odds_fair,
+            "p_consensus":  r.p_estimated,
+            "ev":           r.ev,
+            "ev_pct":       round(r.ev * 100, 2),
+            "stake":        r.stake_recommended,
+            "rf":           r.rf,
+            "rf_label":     r.rf_label,
+            "confidence":   r.confidence,
+            "event_date":   r.event_date,
+        } for r in rows]
+
+        return {"status": "ok", "data": data, "count": len(data)}
     finally:
         db.close()
 
@@ -384,28 +382,53 @@ def strategy_b_bets(
     ev_min: float = 0.0,
 ):
     """
-    Retourne les value bets actifs depuis les données en BDD.
-    Pour l'instant retourne une liste vide si pas de données scrapers.
+    Retourne les value bets actifs générés par le pipeline (vrais matchs).
+    Ex : PSG vs Nantes — BTTS value +8.3%, mise 14€.
     """
-    from backend.strategies.strategy_b import get_value_bets
     db: Session = SessionLocal()
     try:
-        # Les candidats viendront du scraper Betclic (marchés secondaires annotés)
-        # Pour l'instant, on expose l'endpoint prêt — données remplies par le scraper
-        candidates = []
-        results = get_value_bets(candidates, db, portfolio="B")
-
-        # Filtres
+        from datetime import datetime, timedelta, timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        q = db.query(Recommendation).filter(
+            Recommendation.strategy == "B",
+            Recommendation.generated_at >= cutoff,
+        )
         if sport:
-            results = [r for r in results if r.get("sport") == sport]
+            q = q.filter(Recommendation.sport == sport)
         if niche:
-            results = [r for r in results if r.get("niche") == niche]
+            q = q.filter(Recommendation.niche == niche)
         if surface:
-            results = [r for r in results if r.get("surface") == surface]
+            q = q.filter(Recommendation.surface == surface)
         if ev_min > 0:
-            results = [r for r in results if r.get("ev", 0) >= ev_min]
+            q = q.filter(Recommendation.ev >= ev_min)
 
-        return {"status": "ok", "data": results, "count": len(results)}
+        rows = q.order_by(Recommendation.value.desc()).all()
+
+        data = [{
+            "event":        r.event_name,
+            "home_team":    r.home_team,
+            "away_team":    r.away_team,
+            "player_a":     r.player_a,
+            "player_b":     r.player_b,
+            "sport":        r.sport,
+            "niche":        r.niche,
+            "description":  r.description,
+            "p_estimated":  r.p_estimated,
+            "odds_fair":    r.odds_fair,
+            "odds_betclic": r.odds_betclic,
+            "value":        r.value,
+            "value_pct":    round(r.value * 100, 2),
+            "ev":           r.ev,
+            "ev_pct":       round(r.ev * 100, 2),
+            "rf":           r.rf,
+            "rf_label":     r.rf_label,
+            "stake":        r.stake_recommended,
+            "surface":      r.surface,
+            "confidence":   r.confidence,
+            "event_date":   r.event_date,
+        } for r in rows]
+
+        return {"status": "ok", "data": data, "count": len(data)}
     finally:
         db.close()
 
@@ -429,6 +452,84 @@ def strategy_c_alerts(threshold: float = 0.05):
     try:
         movements = detect_line_movements(db, threshold)
         return {"status": "ok", "data": movements, "count": len(movements)}
+    finally:
+        db.close()
+
+
+# ── Recommandations (pipeline) ────────────────────────────────────────────────
+
+@app.get("/api/recommendations")
+def get_recommendations(
+    strategy: Optional[str] = None,
+    sport: Optional[str] = None,
+    niche: Optional[str] = None,
+    min_value: float = 0.0,
+    confidence: Optional[str] = None,
+):
+    """
+    Retourne les recommandations générées par le pipeline.
+    Ex: PSG vs Nantes → BTTS value +8.3%, mise 14€ portefeuille B.
+    """
+    db: Session = SessionLocal()
+    try:
+        from datetime import datetime, timedelta, timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        q = db.query(Recommendation).filter(Recommendation.generated_at >= cutoff)
+
+        if strategy:
+            q = q.filter(Recommendation.strategy == strategy)
+        if sport:
+            q = q.filter(Recommendation.sport == sport)
+        if niche:
+            q = q.filter(Recommendation.niche == niche)
+        if min_value > 0:
+            q = q.filter(Recommendation.value >= min_value)
+        if confidence:
+            q = q.filter(Recommendation.confidence == confidence)
+
+        rows = q.order_by(Recommendation.value.desc()).all()
+
+        data = [{
+            "id":           r.id,
+            "event_name":   r.event_name,
+            "home_team":    r.home_team,
+            "away_team":    r.away_team,
+            "player_a":     r.player_a,
+            "player_b":     r.player_b,
+            "event_date":   r.event_date,
+            "sport":        r.sport,
+            "league":       r.league,
+            "surface":      r.surface,
+            "strategy":     r.strategy,
+            "niche":        r.niche,
+            "description":  r.description,
+            "p_estimated":  r.p_estimated,
+            "odds_fair":    r.odds_fair,
+            "odds_betclic": r.odds_betclic,
+            "value":        r.value,
+            "value_pct":    round(r.value * 100, 2),
+            "ev":           r.ev,
+            "ev_pct":       round(r.ev * 100, 2),
+            "rf":           r.rf,
+            "rf_label":     r.rf_label,
+            "stake":        r.stake_recommended,
+            "confidence":   r.confidence,
+            "generated_at": r.generated_at,
+        } for r in rows]
+
+        return {"status": "ok", "data": data, "count": len(data)}
+    finally:
+        db.close()
+
+
+@app.post("/api/pipeline/run")
+def run_pipeline_manual():
+    """Lance le pipeline d'analyse manuellement (après scraping ou pour rafraîchir)."""
+    from backend.pipeline import run_pipeline
+    db: Session = SessionLocal()
+    try:
+        n = run_pipeline(db)
+        return {"status": "ok", "recommendations_generated": n}
     finally:
         db.close()
 

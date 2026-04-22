@@ -80,7 +80,20 @@
 - dashboard.js, simulation.js : flux complet testé (record + resolve → portfolio_after mis à jour)
 - CSS : modal, kpi-row ajoutés
 
-**Prochaine étape :** Epic 7 — Moteur d'apprentissage
+**Pipeline réel bout-en-bout :** ✅ opérationnel (2026-04-22)
+- `backend/scrapers/betclic.py` : Playwright headed, scrape main + 7 ligues européennes (Ligue 1, PL, La Liga, Serie A, Bundes, LdC, EL) + tennis + boosts. Parse `sports-events-event-card` via ancrage "Nul" pour foot, 2 cotes après HH:MM pour tennis. `wait_until="domcontentloaded"`, captcha non-bloquant si page > 50KB. 49 matchs foot + 20 tennis scrapés en prod.
+- `backend/core/team_mapping.py` : TEAM_MAP FR→FBref pour top-5 ligues + PLAYER_MAP tennis. `resolve_team` strict (alias ≥ 5 chars, whole-word, fuzzy cutoff 0.85) — élimine faux positifs type Levante→nantes. `resolve_player` avec lookup nom de famille.
+- `backend/pipeline.py` : scrape Betclic → save OddsHistory → analyse via Dixon-Coles/Markov → save Recommendation, skip matchs sans params.
+- `backend/models/markov_tennis.py` : **bug critique corrigé** — `prob_set` re-écrit en DP exact sur état (jeux_a, jeux_b), `prob_match` en somme négative-binomiale correcte. Vérifié : prob_set(0.64,0.64)=0.5000 (avant: 0.64), pA+pB=1.000.
+- `backend/db/models.py` : OddsHistory refactorisé (event_name, sport, odds_home/draw/away/ah/ou, is_boost, boost_odds, outcome_index)
+- Test live : PSG-Nantes → P(Nul)=14.2%, cote_juste=7.04, cote_betclic=8.00, value +13.6%, EV +13.6%, mise 1.53€, RF=0.31, confidence=high ✅
+
+**Bloqueur connu :** seulement 9 équipes hand-seedées en BDD (PSG, Nantes, OM, Lyon, RC Lens, Stade Rennais, Atletico, Barcelona, Real Madrid) → 1 reco/40 matchs scrapés. Mismatches mapping↔seed à corriger après run FBref :
+- mapping `lens` ↔ seed `rc_lens`
+- mapping `rennes` ↔ seed `stade_rennais`
+- mapping `atlético_madrid` (accent) ↔ seed `atletico_madrid`
+
+**Prochaine étape :** lancer `backend/scrapers/fbref.py` (~2 min) pour calibrer top-5 ligues + L2 sur saison courante, puis aligner TEAM_MAP sur les vraies clés FBref produites. Ensuite Epic 7 (apprentissage).
 
 **Ordre des Epics prévu :**
 1. Epic 0 — Setup projet (structure, BDD, FastAPI base)

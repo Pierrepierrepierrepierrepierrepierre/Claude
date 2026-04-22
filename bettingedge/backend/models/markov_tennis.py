@@ -48,52 +48,56 @@ def prob_tiebreak(p_a: float, p_b: float) -> float:
 
 def prob_set(p_hold_a: float, p_hold_b: float) -> float:
     """
-    P(A gagne un set) depuis les probabilités de tenir son service.
-    p_hold_a = P(A tient son service), p_hold_b = idem pour B.
+    P(A gagne un set) via DP exact sur l'état (jeux_A, jeux_B).
+    Règles tennis : gagner à 6 avec 2 d'écart, sinon tie-break à 6-6.
+    p_hold_a = P(A tient son service), p_hold_b = P(B tient son service).
     """
-    p_break_b = 1 - p_hold_b  # P(A breake B)
-    p_break_a = 1 - p_hold_a  # P(B breake A)
-
-    # Probabilité A gagne un jeu sur le service de B
-    p_a_on_b_serve = p_break_b
-    # Probabilité A gagne un jeu sur son propre service
+    # Probabilité qu'A gagne un jeu "moyen" (alternance service/retour)
     p_a_on_a_serve = p_hold_a
+    p_a_on_b_serve = 1 - p_hold_b
+    p = (p_a_on_a_serve + p_a_on_b_serve) / 2
+    q = 1 - p
 
-    # P(A gagne un jeu "moyen")
-    p_game_avg = (p_a_on_a_serve + p_a_on_b_serve) / 2
+    # P(A gagne le tie-break) — approximation : p_game_avg
+    p_tb_win = p
 
-    # Approximation set en 6 jeux avec tie-break
-    q = 1 - p_game_avg
-    win = sum(
-        _comb(5 + k, k) * (p_game_avg ** 6) * (q ** k)
-        for k in range(6)
-    )
+    # DP mémoïsé : dp(a,b) = P(A gagne le set | score a-b)
+    memo: dict[tuple[int, int], float] = {}
 
-    # Tie-break à 6-6
-    p_tb = p_game_avg ** 6 * q ** 6 * _comb(12, 6)
-    # P(A gagne le tie-break) — approximation simple
-    p_win_tb = p_game_avg  # si on considère prob uniforme sur le tie-break
+    def dp(a: int, b: int) -> float:
+        if a >= 6 and a - b >= 2:
+            return 1.0
+        if b >= 6 and b - a >= 2:
+            return 0.0
+        if a == 7:
+            return 1.0
+        if b == 7:
+            return 0.0
+        if a == 6 and b == 6:
+            return p_tb_win
+        if (a, b) in memo:
+            return memo[(a, b)]
+        res = p * dp(a + 1, b) + q * dp(a, b + 1)
+        memo[(a, b)] = res
+        return res
 
-    return min(max(win + p_tb * p_win_tb, 0.0), 1.0)
+    return min(max(dp(0, 0), 0.0), 1.0)
 
 
 def prob_match(p_hold_a: float, p_hold_b: float, best_of: int = 3) -> float:
     """
     P(A gagne le match) en BO3 ou BO5.
+    Calcul exact : somme P(A gagne `sets_to_win` sets et B perd k sets, k=0..sets_to_win-1)
+    où le dernier set est forcément gagné par A.
     """
     sets_to_win = (best_of + 1) // 2
     p_set = prob_set(p_hold_a, p_hold_b)
     q_set = 1 - p_set
 
     win = 0.0
-    for sets_won in range(sets_to_win, best_of + 1):
-        sets_lost = sets_won - sets_to_win if sets_won == sets_to_win else sets_won - 1
-        if sets_lost < 0:
-            continue
-        sets_lost = sets_won - sets_to_win
-        total_sets = sets_won + sets_lost
-        # Dernier set forcément gagné par A
-        win += _comb(total_sets - 1, sets_won - 1) * (p_set ** sets_won) * (q_set ** sets_lost)
+    for k in range(sets_to_win):  # k = nombre de sets perdus par A
+        # P(le sets_to_win-ième set gagné par A arrive au (sets_to_win + k)-ème set joué)
+        win += _comb(sets_to_win - 1 + k, k) * (p_set ** sets_to_win) * (q_set ** k)
 
     return min(max(win, 0.0), 1.0)
 

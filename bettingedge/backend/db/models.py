@@ -102,6 +102,40 @@ class Portfolio(Base):
         return self.capital_current
 
 
+class Recommendation(Base):
+    """Recommandations générées par le pipeline sur les vrais matchs du jour."""
+    __tablename__ = "recommendations"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    event_id     = Column(Text, nullable=False)
+    event_name   = Column(Text, nullable=False)   # "PSG vs Nantes"
+    home_team    = Column(Text)
+    away_team    = Column(Text)
+    player_a     = Column(Text)                   # tennis
+    player_b     = Column(Text)                   # tennis
+    event_date   = Column(Text)
+    sport        = Column(Text, nullable=False)
+    league       = Column(Text)
+    surface      = Column(Text)
+
+    strategy     = Column(Text, nullable=False)   # "A", "B"
+    niche        = Column(Text, nullable=False)   # "btts", "boost", "aces", ...
+    description  = Column(Text)                   # "BTTS : Les deux équipes marquent"
+
+    p_estimated  = Column(Float, nullable=False)
+    odds_fair    = Column(Float, nullable=False)
+    odds_betclic = Column(Float, nullable=False)
+    value        = Column(Float, nullable=False)  # (cote_betclic/cote_juste) - 1
+    ev           = Column(Float, nullable=False)  # p * cote - 1
+    rf           = Column(Float, default=0.5)
+    rf_label     = Column(Text, default="Moyen")
+    stake_recommended = Column(Float, default=0.0)
+
+    confidence   = Column(Text, default="high")  # "high"|"medium"|"low" selon dispo params
+    generated_at = Column(Text, nullable=False, default=_now)
+    expires_at   = Column(Text)                  # date de l'événement
+
+
 class ScraperLog(Base):
     __tablename__ = "scraper_logs"
 
