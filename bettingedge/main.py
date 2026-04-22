@@ -225,14 +225,73 @@ def record_bet(data: dict):
 
 
 @app.post("/api/simulation/resolve-bet")
-def resolve_bet(bet_id: int, result: int, odds_close: float):
+def resolve_bet(bet_id: int, result: int, odds_close: Optional[float] = None):
+    """
+    Résout un pari. Si `odds_close` est omis, on tente une auto-récupération
+    depuis football-data.co.uk (Pinnacle closing) via les métadonnées du pari
+    stockées dans features_json (event_name + league + event_date).
+    """
     from backend.db.crud import resolve_bet as _resolve
+    from backend.db.models import Bet
+    import json
+
     db: Session = SessionLocal()
     try:
+        if odds_close is None:
+            bet = db.query(Bet).filter_by(id=bet_id).first()
+            if bet and bet.features_json:
+                try:
+                    feats = json.loads(bet.features_json)
+                    from backend.core.closing_odds import get_closing_for_event
+                    closing = get_closing_for_event(
+                        event_name=feats.get("event_name", ""),
+                        league_hint=feats.get("league") or bet.league,
+                        event_date_iso=feats.get("event_date"),
+                    )
+                    if closing:
+                        # Sélectionne la cote de clôture sur l'issue qui a été pariée
+                        outcome = (feats.get("outcome") or "").lower()
+                        odds_close = {
+                            "home":     closing["pinnacle_home"],
+                            "draw":     closing["pinnacle_draw"],
+                            "away":     closing["pinnacle_away"],
+                            "1":        closing["pinnacle_home"],
+                            "x":        closing["pinnacle_draw"],
+                            "n":        closing["pinnacle_draw"],
+                            "nul":      closing["pinnacle_draw"],
+                            "2":        closing["pinnacle_away"],
+                        }.get(outcome)
+                except Exception:
+                    pass
+        if odds_close is None:
+            raise HTTPException(
+                status_code=400,
+                detail="odds_close requis (auto-fetch Pinnacle a échoué — vérifier features_json)"
+            )
         bet = _resolve(db, bet_id, result, odds_close)
-        return {"status": "ok", "ev_realized": bet.ev_realized, "portfolio_after": bet.portfolio_after}
+        return {
+            "status": "ok",
+            "ev_realized": bet.ev_realized,
+            "portfolio_after": bet.portfolio_after,
+            "odds_close_used": odds_close,
+        }
     finally:
         db.close()
+
+
+# ── Closing odds (Pinnacle via football-data.co.uk) ──────────────────────────
+
+@app.get("/api/closing-odds")
+def closing_odds(home: str, away: str, league: Optional[str] = None, event_date: Optional[str] = None):
+    """
+    Récupère les cotes de clôture Pinnacle (référence sharp) pour un match passé.
+    Utile pour calculer le CLV après résolution d'un pari.
+    """
+    from backend.core.closing_odds import get_pinnacle_closing
+    res = get_pinnacle_closing(home, away, league, event_date)
+    if not res:
+        return {"status": "not_found", "message": "match introuvable ou cotes Pinnacle absentes"}
+    return {"status": "ok", "data": res}
 
 
 # ── Stratégie A — Boosts EV ──────────────────────────────────────────────────
@@ -296,8 +355,10 @@ def strategy_a_boosts():
             Recommendation.generated_at >= cutoff,
         ).order_by(Recommendation.value.desc()).all()
 
+        from backend.core.odds_evolution import compute_variation
         data = [{
             "event":        r.event_name,
+            "event_id":     r.event_id,
             "sport":        r.sport,
             "boost_odds":   r.odds_betclic,
             "normal_odds":  r.odds_fair,
@@ -309,6 +370,7 @@ def strategy_a_boosts():
             "rf_label":     r.rf_label,
             "confidence":   r.confidence,
             "event_date":   r.event_date,
+            "variation":    compute_variation(db, r.event_id, r.odds_betclic) if r.event_id else None,
         } for r in rows]
 
         return {"status": "ok", "data": data, "count": len(data)}
@@ -404,8 +466,10 @@ def strategy_b_bets(
 
         rows = q.order_by(Recommendation.value.desc()).all()
 
+        from backend.core.odds_evolution import compute_variation
         data = [{
             "event":        r.event_name,
+            "event_id":     r.event_id,
             "home_team":    r.home_team,
             "away_team":    r.away_team,
             "player_a":     r.player_a,
@@ -426,6 +490,7 @@ def strategy_b_bets(
             "surface":      r.surface,
             "confidence":   r.confidence,
             "event_date":   r.event_date,
+            "variation":    compute_variation(db, r.event_id, r.odds_betclic) if r.event_id else None,
         } for r in rows]
 
         return {"status": "ok", "data": data, "count": len(data)}
@@ -489,35 +554,66 @@ def get_recommendations(
 
         rows = q.order_by(Recommendation.value.desc()).all()
 
-        data = [{
-            "id":           r.id,
-            "event_name":   r.event_name,
-            "home_team":    r.home_team,
-            "away_team":    r.away_team,
-            "player_a":     r.player_a,
-            "player_b":     r.player_b,
-            "event_date":   r.event_date,
-            "sport":        r.sport,
-            "league":       r.league,
-            "surface":      r.surface,
-            "strategy":     r.strategy,
-            "niche":        r.niche,
-            "description":  r.description,
-            "p_estimated":  r.p_estimated,
-            "odds_fair":    r.odds_fair,
-            "odds_betclic": r.odds_betclic,
-            "value":        r.value,
-            "value_pct":    round(r.value * 100, 2),
-            "ev":           r.ev,
-            "ev_pct":       round(r.ev * 100, 2),
-            "rf":           r.rf,
-            "rf_label":     r.rf_label,
-            "stake":        r.stake_recommended,
-            "confidence":   r.confidence,
-            "generated_at": r.generated_at,
-        } for r in rows]
+        from backend.core.odds_evolution import compute_variation
+        data = []
+        for r in rows:
+            variation = compute_variation(db, r.event_id, r.odds_betclic) if r.event_id else None
+            data.append({
+                "id":           r.id,
+                "event_id":     r.event_id,
+                "event_name":   r.event_name,
+                "home_team":    r.home_team,
+                "away_team":    r.away_team,
+                "player_a":     r.player_a,
+                "player_b":     r.player_b,
+                "event_date":   r.event_date,
+                "sport":        r.sport,
+                "league":       r.league,
+                "surface":      r.surface,
+                "strategy":     r.strategy,
+                "niche":        r.niche,
+                "description":  r.description,
+                "p_estimated":  r.p_estimated,
+                "odds_fair":    r.odds_fair,
+                "odds_betclic": r.odds_betclic,
+                "value":        r.value,
+                "value_pct":    round(r.value * 100, 2),
+                "ev":           r.ev,
+                "ev_pct":       round(r.ev * 100, 2),
+                "rf":           r.rf,
+                "rf_label":     r.rf_label,
+                "stake":        r.stake_recommended,
+                "confidence":   r.confidence,
+                "generated_at": r.generated_at,
+                "variation":    variation,  # None si <2 snapshots
+            })
 
         return {"status": "ok", "data": data, "count": len(data)}
+    finally:
+        db.close()
+
+
+@app.get("/api/odds-evolution/{event_id}")
+def odds_evolution(event_id: str, market_type: str = "1X2"):
+    """
+    Renvoie la série temporelle complète des cotes pour un événement.
+    Utile pour tracer la courbe d'évolution dans le frontend.
+    """
+    from backend.core.odds_evolution import get_event_snapshots
+    db: Session = SessionLocal()
+    try:
+        snaps = get_event_snapshots(db, event_id, market_type)
+        if not snaps:
+            return {"status": "not_found", "data": []}
+        series = [{
+            "scraped_at":    s.scraped_at,
+            "odds_home":     s.odds_home,
+            "odds_draw":     s.odds_draw,
+            "odds_away":     s.odds_away,
+            "odds_ou_over":  s.odds_ou_over,
+            "odds_ou_under": s.odds_ou_under,
+        } for s in snaps]
+        return {"status": "ok", "data": series, "count": len(series)}
     finally:
         db.close()
 

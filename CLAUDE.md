@@ -88,12 +88,25 @@
 - `backend/db/models.py` : OddsHistory refactorisé (event_name, sport, odds_home/draw/away/ah/ou, is_boost, boost_odds, outcome_index)
 - Test live : PSG-Nantes → P(Nul)=14.2%, cote_juste=7.04, cote_betclic=8.00, value +13.6%, EV +13.6%, mise 1.53€, RF=0.31, confidence=high ✅
 
-**Bloqueur connu :** seulement 9 équipes hand-seedées en BDD (PSG, Nantes, OM, Lyon, RC Lens, Stade Rennais, Atletico, Barcelona, Real Madrid) → 1 reco/40 matchs scrapés. Mismatches mapping↔seed à corriger après run FBref :
-- mapping `lens` ↔ seed `rc_lens`
-- mapping `rennes` ↔ seed `stade_rennais`
-- mapping `atlético_madrid` (accent) ↔ seed `atletico_madrid`
+**Calibration top-5 + L2 :** ✅ basculée sur football-data.co.uk (FBref 403 Cloudflare)
+- `backend/scrapers/fbref.py` : nom du module conservé pour compat, source réelle = CSVs football-data.co.uk
+- 114 équipes calibrées Dixon-Coles + stats secondaires (corners, cartons) sur 1784 matchs saison 25/26
+- TEAM_MAP réécrit pour les clés football-data (paris_sg, ath_madrid, m'gladbach, nott'm_forest, …)
+- Couverture matchs Betclic scrapés : 1/40 → 40/40 (100%) → 53 recommandations générées
 
-**Prochaine étape :** lancer `backend/scrapers/fbref.py` (~2 min) pour calibrer top-5 ligues + L2 sur saison courante, puis aligner TEAM_MAP sur les vraies clés FBref produites. Ensuite Epic 7 (apprentissage).
+**Évolution cotes + CLV via Pinnacle :** ✅ opérationnels (2026-04-23)
+- `backend/core/odds_evolution.py` : helper `compute_variation(event_id, odds)` calcule delta entre 1er et dernier snapshot OddsHistory pour la cote bétée. Activable dès qu'on a ≥ 2 snapshots du même event.
+- `backend/core/closing_odds.py` : fetch Pinnacle closing depuis CSVs football-data (cache mémoire 1h), fallback Bet365 si Pinnacle absent. Match exact via TEAM_MAP + fuzzy fallback.
+- API : `GET /api/closing-odds?home=&away=&league=`, `GET /api/odds-evolution/{event_id}`. Variation également embarquée dans `/api/recommendations`, `/api/strategy-a/boosts`, `/api/strategy-b/bets`.
+- `POST /api/simulation/resolve-bet` : `odds_close` désormais optionnel — auto-fetch Pinnacle via `features_json` (event_name + league + outcome) si omis.
+- Frontend : `frontend/js/strategy-b.js` affiche colonne "Évol." avec flèche ↘ verte (cote baisse = sharp money sur cette issue) / ↗ rouge.
+
+**Bugs résiduels identifiés à fixer :**
+1. Tennis sans params → P=50/50 → faux value à +370% (skip à ajouter dans pipeline)
+2. Trop de "Nul" en value bet (DC simplifié sous-estime corrélation home/draw)
+3. EV anormalement élevés > 30% à capper (safety)
+
+**Prochaine étape :** fix les 3 bugs ci-dessus avant Epic 7 (apprentissage).
 
 **Ordre des Epics prévu :**
 1. Epic 0 — Setup projet (structure, BDD, FastAPI base)

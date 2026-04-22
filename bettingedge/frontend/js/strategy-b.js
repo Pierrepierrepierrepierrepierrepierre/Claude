@@ -64,6 +64,7 @@ function renderBets(bets) {
         <td>${(b.p_estimated * 100).toFixed(1)}%</td>
         <td class="odds-normal">${b.odds_fair?.toFixed(2) ?? '—'}</td>
         <td class="odds-val">${b.odds_betclic?.toFixed(2) ?? '—'}</td>
+        <td>${formatVariation(b.variation)}</td>
         <td class="${valClass}">${b.value_pct?.toFixed(1)}%</td>
         <td class="${evClass}">${b.ev_pct?.toFixed(1)}%</td>
         <td>${b.rf?.toFixed(2)} <small class="text-muted">(${b.rf_label})</small></td>
@@ -73,6 +74,16 @@ function renderBets(bets) {
     `);
   }
   table.classList.remove('hidden');
+}
+
+function formatVariation(v) {
+  if (!v || v.delta_pct == null) return '<span class="text-muted">—</span>';
+  // Cote qui baisse = sharp money sur cette issue (signal positif)
+  // Cote qui monte = sharp money sur l'autre issue (signal négatif)
+  const cls = v.delta_pct < 0 ? 'text-green' : (v.delta_pct > 0 ? 'text-red' : 'text-muted');
+  const sign = v.delta_pct > 0 ? '+' : '';
+  const arrow = v.delta_pct < 0 ? '↘' : (v.delta_pct > 0 ? '↗' : '→');
+  return `<span class="${cls}" title="${v.first} → ${v.last} sur ${v.n_snapshots} snapshots, ${v.span_hours}h">${arrow} ${sign}${v.delta_pct.toFixed(1)}%</span>`;
 }
 
 function nicheLabel(niche) {
