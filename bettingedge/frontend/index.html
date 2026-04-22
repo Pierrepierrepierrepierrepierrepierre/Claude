@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BettingEdge — Dashboard</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <nav class="sidebar">
+    <div class="logo">BettingEdge</div>
+    <a href="/" class="active">Dashboard</a>
+    <a href="/strategy-a">Stratégie A</a>
+    <a href="/strategy-b">Stratégie B</a>
+    <a href="/strategy-c">Stratégie C</a>
+    <a href="/simulation">Simulation</a>
+    <a href="/learning">Apprentissage</a>
+    <a href="/docs">Documentation</a>
+  </nav>
+  <main class="content">
+    <h1>Dashboard</h1>
+    <div id="scraper-alert" class="alert hidden"></div>
+    <div class="kpi-grid" id="kpi-grid">
+      <div class="kpi-card" id="kpi-a"><h3>Stratégie A</h3><div class="loading">Chargement...</div></div>
+      <div class="kpi-card" id="kpi-b"><h3>Stratégie B</h3><div class="loading">Chargement...</div></div>
+      <div class="kpi-card" id="kpi-c"><h3>Stratégie C</h3><div class="loading">Chargement...</div></div>
+    </div>
+    <div class="chart-container">
+      <h2>Performance des portefeuilles</h2>
+      <canvas id="perf-chart"></canvas>
+    </div>
+  </main>
+  <script src="/static/js/core/api.js"></script>
+  <script src="/static/js/core/charts.js"></script>
+  <script src="/static/js/core/tooltips.js"></script>
+  <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

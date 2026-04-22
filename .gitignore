@@ -21,3 +21,9 @@ Thumbs.db
 
 # Claude local
 .claude/settings.local.json
+
+# BettingEdge runtime
+bettingedge/*.db
+bettingedge/backups/
+bettingedge/.env
+bettingedge/betclic_session.json

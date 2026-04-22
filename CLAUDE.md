@@ -29,7 +29,14 @@
 
 **Epics/Stories (Bob SM) :** complètes ✅ — `docs/planning/epics.md` — 119 points, 9 epics, chemin critique documenté
 
-**Prochaine étape :** Dev — commencer Epic 0 (setup projet)
+**Epic 0 — Setup Projet :** ✅ complet (2026-04-22)
+- Structure `bettingedge/` créée, toutes les dépendances installées
+- BDD SQLite seedée (6 tables, 3 portefeuilles, 15 niches)
+- FastAPI opérationnel sur `localhost:8000`
+- Backup automatique fonctionnel
+- Python à utiliser : `/c/Users/pierr/AppData/Local/Programs/Python/Python312/python`
+
+**Prochaine étape :** Epic 1 — Scrapers (FBref bootstrap prioritaire)
 
 **Ordre des Epics prévu :**
 1. Epic 0 — Setup projet (structure, BDD, FastAPI base)
