@@ -18,19 +18,80 @@
     <a href="/learning">Apprentissage</a>
     <a href="/docs">Documentation</a>
   </nav>
+
   <main class="content">
-    <h1>Dashboard</h1>
-    <div id="scraper-alert" class="alert hidden"></div>
+    <div class="page-header">
+      <h1>Dashboard</h1>
+      <div class="filter-bar">
+        <label style="font-size:0.82rem;color:var(--text-muted)">Période :</label>
+        <select id="period-filter" onchange="loadDashboard()">
+          <option value="7">7 jours</option>
+          <option value="30">30 jours</option>
+          <option value="0" selected>Tout</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="scraper-alert" class="alert alert-warn hidden"></div>
+
+    <!-- KPI cards des 3 portefeuilles -->
     <div class="kpi-grid" id="kpi-grid">
-      <div class="kpi-card" id="kpi-a"><h3>Stratégie A</h3><div class="loading">Chargement...</div></div>
-      <div class="kpi-card" id="kpi-b"><h3>Stratégie B</h3><div class="loading">Chargement...</div></div>
-      <div class="kpi-card" id="kpi-c"><h3>Stratégie C</h3><div class="loading">Chargement...</div></div>
+      <div class="kpi-card" id="kpi-A">
+        <h3>Stratégie A — Boosts EV</h3>
+        <div class="loading">Chargement...</div>
+      </div>
+      <div class="kpi-card" id="kpi-B">
+        <h3>Stratégie B — Value Betting</h3>
+        <div class="loading">Chargement...</div>
+      </div>
+      <div class="kpi-card" id="kpi-C">
+        <h3>Stratégie C — CLV Tracker</h3>
+        <div class="loading">Chargement...</div>
+      </div>
     </div>
+
+    <!-- Courbes de performance -->
     <div class="chart-container">
-      <h2>Performance des portefeuilles</h2>
-      <canvas id="perf-chart"></canvas>
+      <div class="card-header" style="margin-bottom:16px">
+        <h2>Performance des portefeuilles (capital)</h2>
+      </div>
+      <canvas id="perf-chart" height="90"></canvas>
     </div>
+
+    <!-- Tableau comparatif -->
+    <section class="card">
+      <div class="card-header">
+        <h2>Comparaison détaillée</h2>
+      </div>
+      <table class="data-table" id="compare-table">
+        <thead>
+          <tr>
+            <th>Stratégie</th>
+            <th>Capital actuel</th>
+            <th>ROI</th>
+            <th>CLV moyen</th>
+            <th>% EV+</th>
+            <th>Drawdown max</th>
+            <th>Brier Score</th>
+            <th>Rang</th>
+          </tr>
+        </thead>
+        <tbody id="compare-body"></tbody>
+      </table>
+    </section>
+
+    <!-- Statut scrapers -->
+    <section class="card">
+      <div class="card-header"><h2>Scrapers</h2></div>
+      <table class="data-table" id="scraper-table">
+        <thead>
+          <tr><th>Scraper</th><th>Dernier run</th><th>Statut</th><th>Message</th><th></th></tr>
+        </thead>
+        <tbody id="scraper-body"></tbody>
+      </table>
+    </section>
   </main>
+
   <script src="/static/js/core/api.js"></script>
   <script src="/static/js/core/charts.js"></script>
   <script src="/static/js/core/tooltips.js"></script>

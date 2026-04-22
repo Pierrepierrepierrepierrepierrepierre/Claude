@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>BettingEdge — simulation</title>
+  <title>BettingEdge — Simulation</title>
   <link rel="stylesheet" href="/static/css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -17,10 +17,132 @@
     <a href="/learning">Apprentissage</a>
     <a href="/docs">Documentation</a>
   </nav>
+
   <main class="content">
-    <h1>Simulation</h1>
-    <p class="loading">Page en cours de développement — Epic correspondant à venir.</p>
+    <div class="page-header">
+      <h1>Simulation — Enregistrement des paris</h1>
+      <p class="subtitle">Enregistrer, suivre et résoudre vos paris fictifs</p>
+    </div>
+
+    <!-- Nouveau pari -->
+    <section class="card">
+      <div class="card-header">
+        <h2>Nouveau pari</h2>
+        <button class="btn-secondary btn-sm" onclick="toggleForm()">+ Ajouter</button>
+      </div>
+      <form id="bet-form" class="hidden" onsubmit="recordBet(event)">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Stratégie</label>
+            <select id="f-strategy">
+              <option value="A">A — Boosts EV</option>
+              <option value="B">B — Value Betting</option>
+              <option value="C">C — CLV Tracker</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Marché</label>
+            <input type="text" id="f-market" placeholder="ex: 1X2, Over 2.5, Aces > 22.5" required>
+          </div>
+          <div class="form-group">
+            <label>Sport</label>
+            <select id="f-sport">
+              <option value="football">Football</option>
+              <option value="tennis">Tennis</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Cote prise</label>
+            <input type="number" id="f-odds" step="0.01" min="1.01" required>
+          </div>
+          <div class="form-group">
+            <label>Mise (€)</label>
+            <input type="number" id="f-stake" step="0.01" min="0.01" required>
+          </div>
+          <div class="form-group">
+            <label>P estimée</label>
+            <input type="number" id="f-p" step="0.001" min="0.001" max="0.999" placeholder="0.550">
+          </div>
+          <div class="form-group">
+            <label>EV attendu</label>
+            <input type="number" id="f-ev" step="0.001" placeholder="0.050">
+          </div>
+          <div class="form-group">
+            <label>Ligue / Surface</label>
+            <input type="text" id="f-league" placeholder="ex: Ligue 1, Hard">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button type="submit" class="btn-primary">Enregistrer le pari</button>
+          <button type="button" class="btn-secondary" onclick="toggleForm()">Annuler</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Filtres + liste -->
+    <section class="card">
+      <div class="card-header">
+        <h2>Mes paris</h2>
+        <div class="filter-bar">
+          <select id="filter-strategy" onchange="loadBets()">
+            <option value="">Toutes stratégies</option>
+            <option value="A">Stratégie A</option>
+            <option value="B">Stratégie B</option>
+            <option value="C">Stratégie C</option>
+          </select>
+          <select id="filter-status" onchange="loadBets()">
+            <option value="">Tous statuts</option>
+            <option value="open">En cours</option>
+            <option value="resolved">Résolus</option>
+          </select>
+        </div>
+      </div>
+
+      <p class="loading" id="bets-loading">Chargement...</p>
+      <table class="data-table hidden" id="bets-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Strat.</th>
+            <th>Marché</th>
+            <th>Sport</th>
+            <th>Cote</th>
+            <th>Mise</th>
+            <th>EV espéré</th>
+            <th>EV réalisé</th>
+            <th>Résultat</th>
+            <th>Impact portefeuille</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="bets-body"></tbody>
+      </table>
+      <p class="empty-state hidden" id="bets-empty">Aucun pari enregistré.</p>
+    </section>
+
+    <!-- Modal résolution -->
+    <div id="resolve-modal" class="modal hidden">
+      <div class="modal-content">
+        <h3>Résoudre le pari #<span id="resolve-id"></span></h3>
+        <div class="form-group">
+          <label>Résultat</label>
+          <select id="resolve-result">
+            <option value="1">Gagné ✓</option>
+            <option value="0">Perdu ✗</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Cote de clôture (pour CLV) <span class="tooltip-icon" data-tip="clv">?</span></label>
+          <input type="number" id="resolve-odds-close" step="0.01" min="1.01" placeholder="Optionnel">
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px">
+          <button class="btn-primary" onclick="submitResolve()">Confirmer</button>
+          <button class="btn-secondary" onclick="closeModal()">Annuler</button>
+        </div>
+      </div>
+    </div>
   </main>
+
   <script src="/static/js/core/api.js"></script>
   <script src="/static/js/core/tooltips.js"></script>
   <script src="/static/js/core/charts.js"></script>

@@ -47,41 +47,103 @@ def health():
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/dashboard")
-def dashboard():
+def dashboard(period_days: int = 0):
     db: Session = SessionLocal()
     try:
         portfolios = get_all_portfolios(db)
         port_data = {}
+
+        from datetime import datetime, timedelta
+        cutoff = None
+        if period_days > 0:
+            cutoff = (datetime.utcnow() - timedelta(days=period_days)).isoformat()
+
         for p in portfolios:
-            bets = get_bets(db, strategy=p.strategy, resolved=True)
+            bets_all = get_bets(db, strategy=p.strategy, resolved=True)
+            bets = [b for b in bets_all if not cutoff or (b.resolved_at and b.resolved_at >= cutoff)]
+
             clv_values = [
                 (b.odds_taken / b.odds_close - 1)
                 for b in bets if b.odds_close and b.odds_close > 0
             ]
             clv_mean = sum(clv_values) / len(clv_values) if clv_values else 0.0
 
+            # ROI = profit total / mise totale
+            total_stake = sum(b.stake for b in bets if b.stake)
+            total_profit = sum(
+                b.stake * (b.odds_taken - 1) if b.result == 1 else -b.stake
+                for b in bets if b.result is not None and b.stake
+            )
+            roi = total_profit / total_stake if total_stake > 0 else 0.0
+
+            # % paris EV+
+            n_ev_pos = sum(1 for b in bets if b.ev_expected and b.ev_expected > 0)
+            pct_ev_pos = n_ev_pos / len(bets) * 100 if bets else 0.0
+
+            # Drawdown max
+            drawdown_max = 0.0
+            peak = p.capital_initial
+            for b in sorted(bets, key=lambda x: x.resolved_at or ""):
+                val = b.portfolio_after or peak
+                if val > peak:
+                    peak = val
+                dd = (peak - val) / peak if peak > 0 else 0.0
+                drawdown_max = max(drawdown_max, dd)
+
             port_data[p.strategy] = {
                 "capital_initial": p.capital_initial,
                 "capital_current": p.capital_current,
-                "n_bets": p.n_bets,
+                "balance": p.balance,
+                "n_bets": len(bets),
+                "roi": round(roi, 4),
+                "roi_pct": round(roi * 100, 2),
                 "clv_mean": round(clv_mean, 4),
-                "brier_score": 0.25,  # sera recalculé par Epic 7
+                "clv_mean_pct": round(clv_mean * 100, 2),
+                "pct_ev_pos": round(pct_ev_pos, 1),
+                "drawdown_max": round(drawdown_max, 4),
+                "drawdown_max_pct": round(drawdown_max * 100, 2),
+                "brier_score": 0.25,  # recalculé par Epic 7
             }
 
-        # Série temporelle (capital par pari résolu)
+        # Série temporelle
         series = []
         for strategy in ["A", "B", "C"]:
             bets = get_bets(db, strategy=strategy, resolved=True)
-            points = [{"x": b.resolved_at[:10], "y": b.portfolio_after} for b in reversed(bets) if b.portfolio_after]
+            if cutoff:
+                bets = [b for b in bets if b.resolved_at and b.resolved_at >= cutoff]
+            points = [
+                {"x": b.resolved_at[:10], "y": round(b.portfolio_after, 2)}
+                for b in reversed(bets)
+                if b.portfolio_after and b.resolved_at
+            ]
+            # Ajouter point de départ
+            port = next((p for p in portfolios if p.strategy == strategy), None)
+            if port and points:
+                points = [{"x": points[0]["x"], "y": round(port.capital_initial, 2)}] + points
             series.append({"strategy": strategy, "points": points})
 
-        # Statut scraper Betclic
-        scraper_error = None
-        last = db.query(ScraperLog).filter_by(scraper="betclic").order_by(ScraperLog.ran_at.desc()).first()
-        if last and last.status not in ("ok",):
-            scraper_error = f"{last.status} — {last.message or ''}"
+        # Statut scrapers
+        scraper_statuses = {}
+        for scraper in ["betclic", "fbref", "tennis_abstract"]:
+            last = db.query(ScraperLog).filter_by(scraper=scraper).order_by(ScraperLog.ran_at.desc()).first()
+            scraper_statuses[scraper] = {
+                "status": last.status if last else "jamais",
+                "ran_at": last.ran_at if last else None,
+                "message": last.message if last else None,
+            }
 
-        return {"status": "ok", "portfolios": port_data, "series": series, "scraper_error": scraper_error}
+        scraper_error = next(
+            (f"{k}: {v['status']}" for k, v in scraper_statuses.items() if v["status"] not in ("ok", "jamais")),
+            None
+        )
+
+        return {
+            "status": "ok",
+            "portfolios": port_data,
+            "series": series,
+            "scraper_statuses": scraper_statuses,
+            "scraper_error": scraper_error,
+        }
     finally:
         db.close()
 

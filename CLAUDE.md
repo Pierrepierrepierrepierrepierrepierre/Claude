@@ -73,7 +73,14 @@
 - Routes API : GET /api/strategy-c/clv, GET /api/strategy-c/alerts
 - Frontend : strategy-c.html (KPIs CLV + alertes mouvements + historique par pari), strategy-c.js
 
-**Prochaine étape :** Epic 6 — Dashboard & Portefeuilles
+**Epic 6 — Dashboard & Portefeuilles :** ✅ complet (2026-04-22)
+- /api/dashboard enrichi : ROI%, drawdown max, % EV+, CLV moyen, filtre période, statut 3 scrapers
+- index.html refait : courbe Chart.js 3 stratégies, tableau comparatif avec rang, section scrapers
+- simulation.html : formulaire nouveau pari, résolution avec cote clôture, historique filtré
+- dashboard.js, simulation.js : flux complet testé (record + resolve → portfolio_after mis à jour)
+- CSS : modal, kpi-row ajoutés
+
+**Prochaine étape :** Epic 7 — Moteur d'apprentissage
 
 **Ordre des Epics prévu :**
 1. Epic 0 — Setup projet (structure, BDD, FastAPI base)
