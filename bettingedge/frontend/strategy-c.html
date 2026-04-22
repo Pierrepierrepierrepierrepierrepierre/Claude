@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>BettingEdge — strategy-c</title>
+  <title>BettingEdge — Stratégie C : CLV Tracker</title>
   <link rel="stylesheet" href="/static/css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -17,10 +17,100 @@
     <a href="/learning">Apprentissage</a>
     <a href="/docs">Documentation</a>
   </nav>
+
   <main class="content">
-    <h1>Strategy-c</h1>
-    <p class="loading">Page en cours de développement — Epic correspondant à venir.</p>
+    <div class="page-header">
+      <h1>Stratégie C — CLV Tracker</h1>
+      <p class="subtitle">Closing Line Value — mesure de la qualité du modèle</p>
+    </div>
+
+    <!-- KPIs CLV -->
+    <div class="kpi-grid" id="kpi-grid">
+      <div class="kpi-card">
+        <h3>CLV moyen <span class="tooltip-icon" data-tip="clv">?</span></h3>
+        <div class="kpi-value" id="kpi-clv-mean">—</div>
+        <div class="kpi-meta" id="kpi-n-bets">0 paris</div>
+      </div>
+      <div class="kpi-card">
+        <h3>Z-score <span class="tooltip-icon" data-tip="clv">?</span></h3>
+        <div class="kpi-value" id="kpi-zscore">—</div>
+        <div class="kpi-meta">Seuil : 1.645 (p &lt; 5%)</div>
+      </div>
+      <div class="kpi-card">
+        <h3>Interprétation</h3>
+        <div class="kpi-value" id="kpi-interp" style="font-size:1rem">—</div>
+        <div class="kpi-meta" id="kpi-significant">—</div>
+      </div>
+    </div>
+
+    <!-- Alertes mouvements de cotes -->
+    <section class="card">
+      <div class="card-header">
+        <h2>Mouvements de cotes <span class="tooltip-icon" data-tip="clv">?</span></h2>
+        <div class="filter-bar">
+          <label style="font-size:0.82rem;color:var(--text-muted)">Seuil :</label>
+          <select id="alert-threshold" onchange="loadAlerts()">
+            <option value="0.03">3%</option>
+            <option value="0.05" selected>5%</option>
+            <option value="0.10">10%</option>
+          </select>
+          <button class="btn-secondary btn-sm" onclick="loadAlerts()">Actualiser</button>
+        </div>
+      </div>
+
+      <p class="loading" id="alerts-loading">Chargement...</p>
+      <table class="data-table hidden" id="alerts-table">
+        <thead>
+          <tr>
+            <th>Événement</th>
+            <th>Marché</th>
+            <th>Sport</th>
+            <th>Cote ouverture</th>
+            <th>Cote actuelle</th>
+            <th>Variation</th>
+            <th>Signal</th>
+          </tr>
+        </thead>
+        <tbody id="alerts-body"></tbody>
+      </table>
+      <p class="empty-state hidden" id="alerts-empty">
+        Aucun mouvement de cote détecté sur ce seuil dans les 48 dernières heures.
+      </p>
+    </section>
+
+    <!-- Historique CLV par pari -->
+    <section class="card">
+      <div class="card-header">
+        <h2>Historique CLV par pari</h2>
+        <select id="strat-filter" onchange="loadCLV()">
+          <option value="C">Stratégie C</option>
+          <option value="A">Stratégie A</option>
+          <option value="B">Stratégie B</option>
+        </select>
+      </div>
+
+      <p class="loading" id="clv-loading">Chargement...</p>
+      <table class="data-table hidden" id="clv-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Marché</th>
+            <th>Sport</th>
+            <th>Cote prise</th>
+            <th>Cote clôture</th>
+            <th>CLV <span class="tooltip-icon" data-tip="clv">?</span></th>
+            <th>Résultat</th>
+            <th>Mise</th>
+          </tr>
+        </thead>
+        <tbody id="clv-body"></tbody>
+      </table>
+      <p class="empty-state hidden" id="clv-empty">
+        Aucun pari résolu avec cote de clôture enregistrée.
+      </p>
+    </section>
   </main>
+
   <script src="/static/js/core/api.js"></script>
   <script src="/static/js/core/tooltips.js"></script>
   <script src="/static/js/core/charts.js"></script>

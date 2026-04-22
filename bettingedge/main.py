@@ -348,6 +348,29 @@ def strategy_b_bets(
         db.close()
 
 
+# ── Stratégie C — CLV Tracker ────────────────────────────────────────────────
+
+@app.get("/api/strategy-c/clv")
+def strategy_c_clv(strategy: str = "C"):
+    from backend.strategies.strategy_c import compute_clv_stats
+    db: Session = SessionLocal()
+    try:
+        return {"status": "ok", "data": compute_clv_stats(db, strategy)}
+    finally:
+        db.close()
+
+
+@app.get("/api/strategy-c/alerts")
+def strategy_c_alerts(threshold: float = 0.05):
+    from backend.strategies.strategy_c import detect_line_movements
+    db: Session = SessionLocal()
+    try:
+        movements = detect_line_movements(db, threshold)
+        return {"status": "ok", "data": movements, "count": len(movements)}
+    finally:
+        db.close()
+
+
 # ── Static files & pages ──────────────────────────────────────────────────────
 
 frontend_dir = os.path.join(os.path.dirname(__file__), "frontend")

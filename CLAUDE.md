@@ -68,7 +68,12 @@
 - Frontend : strategy-b.html (filtres dynamiques + calculateur multi-niche), strategy-b.js
 - CSS : filter-bar, btn-sm ajoutés
 
-**Prochaine étape :** Epic 5 — Stratégie C (CLV Tracker)
+**Epic 5 — Stratégie C (CLV Tracker) :** ✅ complet (2026-04-22)
+- strategy_c.py : compute_clv_stats (CLV moyen, z-score, interprétation), detect_line_movements (alertes sharps)
+- Routes API : GET /api/strategy-c/clv, GET /api/strategy-c/alerts
+- Frontend : strategy-c.html (KPIs CLV + alertes mouvements + historique par pari), strategy-c.js
+
+**Prochaine étape :** Epic 6 — Dashboard & Portefeuilles
 
 **Ordre des Epics prévu :**
 1. Epic 0 — Setup projet (structure, BDD, FastAPI base)

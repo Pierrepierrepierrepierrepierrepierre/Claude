@@ -397,3 +397,5 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   cursor: pointer;
 }
 .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+
+.bold { font-weight: 700; }
