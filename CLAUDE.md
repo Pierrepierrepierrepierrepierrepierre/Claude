@@ -25,7 +25,11 @@
 
 **Document d'architecture :** `docs/planning/architecture.md` ✅
 
-**Prochaine étape :** Bob (SM) → découpage en Epics/Stories
+**Révision adversariale (RA) :** complète ✅ — 7 corrections intégrées dans architecture.md
+
+**Epics/Stories (Bob SM) :** complètes ✅ — `docs/planning/epics.md` — 119 points, 9 epics, chemin critique documenté
+
+**Prochaine étape :** Dev — commencer Epic 0 (setup projet)
 
 **Ordre des Epics prévu :**
 1. Epic 0 — Setup projet (structure, BDD, FastAPI base)
