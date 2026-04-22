@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     ev_threshold_b: float = 0.02
     brier_alert_threshold: float = 0.22
 
+    # Safety caps (Bug 2/3 mitigation)
+    # ev_cap : au-dessus, on considère que le modèle déraille → skip
+    # ev_threshold_draw_extra : surcoût EV exigé pour parier "Nul"
+    #   (le DC simplifié sur-estime les nuls de ~5-8 points → on compense)
+    ev_cap: float = 0.50
+    ev_threshold_draw_extra: float = 0.15
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -110,20 +110,33 @@ def analyze_football(event: OddsHistory, params: dict, balance_b: float, db: Ses
             continue
         odds_fair = round(1 / p_est, 3)
         val = compute_value(odds_betclic, odds_fair)
-        if val > settings.ev_threshold_b:
-            ev_val, rf, rf_lbl, stake = _stake(p_est, odds_betclic, balance_b)
-            recos.append({**base,
-                "niche":       "1x2",
-                "description": f"{outcome_name} ({event.event_name})",
-                "p_estimated": round(p_est, 4),
-                "odds_fair":   odds_fair,
-                "odds_betclic": odds_betclic,
-                "value":       round(val, 4),
-                "ev":          round(ev_val, 4),
-                "rf":          rf,
-                "rf_label":    rf_lbl,
-                "stake_recommended": stake,
-            })
+
+        # Bug 2 mitigation : DC simplifié sur-estime les nuls → seuil EV plus haut
+        threshold = settings.ev_threshold_b
+        if outcome_idx == 1:
+            threshold += settings.ev_threshold_draw_extra
+
+        if val <= threshold:
+            continue
+
+        ev_val_pre, _, _, _ = _stake(p_est, odds_betclic, balance_b)
+        # Bug 3 mitigation : EV anormal (>50%) → modèle suspect, on skippe
+        if ev_val_pre > settings.ev_cap:
+            continue
+
+        ev_val, rf, rf_lbl, stake = _stake(p_est, odds_betclic, balance_b)
+        recos.append({**base,
+            "niche":       "1x2",
+            "description": f"{outcome_name} ({event.event_name})",
+            "p_estimated": round(p_est, 4),
+            "odds_fair":   odds_fair,
+            "odds_betclic": odds_betclic,
+            "value":       round(val, 4),
+            "ev":          round(ev_val, 4),
+            "rf":          rf,
+            "rf_label":    rf_lbl,
+            "stake_recommended": stake,
+        })
 
     # ── BTTS ──
     if event.odds_draw and p_btts > 0:
@@ -137,18 +150,19 @@ def analyze_football(event: OddsHistory, params: dict, balance_b: float, db: Ses
         val = compute_value(event.odds_ou_over, odds_fair_over)
         if val > settings.ev_threshold_b:
             ev_val, rf, rf_lbl, stake = _stake(p_over, event.odds_ou_over, balance_b)
-            recos.append({**base,
-                "niche":       "over25",
-                "description": f"Plus de 2.5 buts ({event.event_name})",
-                "p_estimated": round(p_over, 4),
-                "odds_fair":   odds_fair_over,
-                "odds_betclic": event.odds_ou_over,
-                "value":       round(val, 4),
-                "ev":          round(ev_val, 4),
-                "rf":          rf,
-                "rf_label":    rf_lbl,
-                "stake_recommended": stake,
-            })
+            if ev_val <= settings.ev_cap:
+                recos.append({**base,
+                    "niche":       "over25",
+                    "description": f"Plus de 2.5 buts ({event.event_name})",
+                    "p_estimated": round(p_over, 4),
+                    "odds_fair":   odds_fair_over,
+                    "odds_betclic": event.odds_ou_over,
+                    "value":       round(val, 4),
+                    "ev":          round(ev_val, 4),
+                    "rf":          rf,
+                    "rf_label":    rf_lbl,
+                    "stake_recommended": stake,
+                })
 
     # ── Boost Strategy A ──
     if event.is_boost and event.boost_odds:
@@ -205,6 +219,14 @@ def analyze_tennis(event: OddsHistory, params: dict, balance_b: float, db: Sessi
     elif "grass" in league_lower or "wimbledon" in league_lower or "gazon" in league_lower:
         surface = "grass"
 
+    # Bug 1 fix : si AUCUN des deux joueurs n'a d'ace_rate connu, on n'a aucun
+    # signal différentiel → P=50/50 produirait du faux value sur l'outsider.
+    # On skippe complètement le match dans ce cas.
+    rate_a_known = f"ace_rate_{pa_key}_{surface}" in params
+    rate_b_known = f"ace_rate_{pb_key}_{surface}" in params
+    if not (rate_a_known or rate_b_known):
+        return recos
+
     avg_ace = params.get(f"ace_rate_avg_{surface}", 0.08)
     rate_a = params.get(f"ace_rate_{pa_key}_{surface}", avg_ace)
     rate_b = params.get(f"ace_rate_{pb_key}_{surface}", avg_ace)
@@ -241,18 +263,19 @@ def analyze_tennis(event: OddsHistory, params: dict, balance_b: float, db: Sessi
             val = compute_value(odds_betclic, odds_fair)
             if val > settings.ev_threshold_b:
                 ev_val, rf, rf_lbl, stake = _stake(p_est, odds_betclic, balance_b)
-                recos.append({**base,
-                    "niche":       "tennis_winner",
-                    "description": f"{desc} ({event.event_name})",
-                    "p_estimated": round(p_est, 4),
-                    "odds_fair":   odds_fair,
-                    "odds_betclic": odds_betclic,
-                    "value":       round(val, 4),
-                    "ev":          round(ev_val, 4),
-                    "rf":          rf,
-                    "rf_label":    rf_lbl,
-                    "stake_recommended": stake,
-                })
+                if ev_val <= settings.ev_cap:
+                    recos.append({**base,
+                        "niche":       "tennis_winner",
+                        "description": f"{desc} ({event.event_name})",
+                        "p_estimated": round(p_est, 4),
+                        "odds_fair":   odds_fair,
+                        "odds_betclic": odds_betclic,
+                        "value":       round(val, 4),
+                        "ev":          round(ev_val, 4),
+                        "rf":          rf,
+                        "rf_label":    rf_lbl,
+                        "stake_recommended": stake,
+                    })
 
     # ── Aces Over/Under ── (si cote O/U disponible)
     if event.odds_ou_over and event.odds_ou_under:
@@ -277,18 +300,19 @@ def analyze_tennis(event: OddsHistory, params: dict, balance_b: float, db: Sessi
                 val = compute_value(odds_betclic, odds_fair)
                 if val > settings.ev_threshold_b:
                     ev_val, rf, rf_lbl, stake = _stake(p_est, odds_betclic, balance_b)
-                    recos.append({**base,
-                        "niche":       f"aces_{threshold}",
-                        "description": f"{desc} ({event.event_name})",
-                        "p_estimated": round(p_est, 4),
-                        "odds_fair":   odds_fair,
-                        "odds_betclic": odds_betclic,
-                        "value":       round(val, 4),
-                        "ev":          round(ev_val, 4),
-                        "rf":          rf,
-                        "rf_label":    rf_lbl,
-                        "stake_recommended": stake,
-                    })
+                    if ev_val <= settings.ev_cap:
+                        recos.append({**base,
+                            "niche":       f"aces_{threshold}",
+                            "description": f"{desc} ({event.event_name})",
+                            "p_estimated": round(p_est, 4),
+                            "odds_fair":   odds_fair,
+                            "odds_betclic": odds_betclic,
+                            "value":       round(val, 4),
+                            "ev":          round(ev_val, 4),
+                            "rf":          rf,
+                            "rf_label":    rf_lbl,
+                            "stake_recommended": stake,
+                        })
 
     return recos
 
