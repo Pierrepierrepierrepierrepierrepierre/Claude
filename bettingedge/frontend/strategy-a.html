@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>BettingEdge — strategy-a</title>
+  <title>BettingEdge — Stratégie A : Boosts EV</title>
   <link rel="stylesheet" href="/static/css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -17,10 +17,154 @@
     <a href="/learning">Apprentissage</a>
     <a href="/docs">Documentation</a>
   </nav>
+
   <main class="content">
-    <h1>Strategy-a</h1>
-    <p class="loading">Page en cours de développement — Epic correspondant à venir.</p>
+    <div class="page-header">
+      <h1>Stratégie A — Boosts EV</h1>
+      <p class="subtitle">Super Boosts Betclic avec espérance de valeur positive</p>
+    </div>
+
+    <!-- Alerte scraper -->
+    <div id="scraper-alert" class="alert alert-warn hidden">
+      Scraper Betclic en erreur — les données peuvent être obsolètes.
+    </div>
+
+    <!-- Boosts du jour -->
+    <section class="card">
+      <div class="card-header">
+        <h2>Boosts EV+ du jour</h2>
+        <button class="btn-secondary" onclick="refreshBoosts()">Actualiser</button>
+      </div>
+      <div id="boosts-container">
+        <p class="loading" id="boosts-loading">Chargement...</p>
+        <table class="data-table hidden" id="boosts-table">
+          <thead>
+            <tr>
+              <th>Événement</th>
+              <th>Marché</th>
+              <th>Cote boostée</th>
+              <th>Cote normale</th>
+              <th>P consensus</th>
+              <th>EV <span class="tooltip-icon" data-tip="ev">?</span></th>
+              <th>Mise A</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="boosts-body"></tbody>
+        </table>
+        <p class="empty-state hidden" id="boosts-empty">
+          Aucun boost EV+ détecté aujourd'hui. Vérifiez que le scraper a tourné.
+        </p>
+      </div>
+    </section>
+
+    <!-- Calculateur manuel -->
+    <section class="card">
+      <div class="card-header">
+        <h2>Calculateur manuel</h2>
+        <span class="badge badge-blue">EV + Mise recommandée</span>
+      </div>
+      <form id="calc-form" onsubmit="calculate(event)">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Cote boostée</label>
+            <input type="number" id="boost-odds" step="0.01" min="1.01" placeholder="ex: 3.50" required>
+          </div>
+          <div class="form-group">
+            <label>Issue analysée</label>
+            <select id="outcome-index">
+              <option value="0">Domicile / Over / Équipe A</option>
+              <option value="1">Nul</option>
+              <option value="2">Extérieur / Équipe B</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Portefeuille <span class="tooltip-icon" data-tip="kelly">?</span></label>
+            <select id="portfolio">
+              <option value="A">A (Boosts EV)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-section-title">Cotes de marché (pour consensus)</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>1X2 : Domicile / Nul / Extérieur</label>
+            <div class="input-row">
+              <input type="number" id="odds-home" step="0.01" min="1.01" placeholder="ex: 2.10">
+              <input type="number" id="odds-draw" step="0.01" min="1.01" placeholder="ex: 3.40">
+              <input type="number" id="odds-away" step="0.01" min="1.01" placeholder="ex: 3.20">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>AH : Dom / Ext</label>
+            <div class="input-row">
+              <input type="number" id="odds-ah-home" step="0.01" min="1.01" placeholder="ex: 1.95">
+              <input type="number" id="odds-ah-away" step="0.01" min="1.01" placeholder="ex: 1.95">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>O/U : Over / Under</label>
+            <div class="input-row">
+              <input type="number" id="odds-ou-over" step="0.01" min="1.01" placeholder="ex: 1.90">
+              <input type="number" id="odds-ou-under" step="0.01" min="1.01" placeholder="ex: 1.90">
+            </div>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Brier Score modèle <span class="tooltip-icon" data-tip="rf">?</span></label>
+            <input type="number" id="brier-score" step="0.01" min="0" max="1" value="0.20" placeholder="0.20">
+          </div>
+          <div class="form-group">
+            <label>Paris similaires (historique)</label>
+            <input type="number" id="n-similaires" min="0" value="0" placeholder="0">
+          </div>
+          <div class="form-group">
+            <label>CLV moyen historique</label>
+            <input type="number" id="clv-mean" step="0.01" value="0.00" placeholder="0.00">
+          </div>
+        </div>
+
+        <button type="submit" class="btn-primary">Calculer EV + Mise</button>
+      </form>
+
+      <div id="calc-result" class="result-panel hidden">
+        <div class="result-grid">
+          <div class="kpi-mini">
+            <span class="kpi-label">P consensus</span>
+            <span class="kpi-val" id="res-p-consensus">—</span>
+          </div>
+          <div class="kpi-mini">
+            <span class="kpi-label">EV <span class="tooltip-icon" data-tip="ev">?</span></span>
+            <span class="kpi-val" id="res-ev">—</span>
+          </div>
+          <div class="kpi-mini">
+            <span class="kpi-label">Kelly f*</span>
+            <span class="kpi-val" id="res-kelly">—</span>
+          </div>
+          <div class="kpi-mini">
+            <span class="kpi-label">RF <span class="tooltip-icon" data-tip="rf">?</span></span>
+            <span class="kpi-val" id="res-rf">—</span>
+          </div>
+          <div class="kpi-mini">
+            <span class="kpi-label">Mise recommandée</span>
+            <span class="kpi-val" id="res-stake">—</span>
+          </div>
+          <div class="kpi-mini">
+            <span class="kpi-label">% portefeuille</span>
+            <span class="kpi-val" id="res-stake-pct">—</span>
+          </div>
+        </div>
+        <div id="calc-verdict" class="verdict"></div>
+        <button class="btn-secondary" id="btn-simulate" onclick="simulateBet()" style="margin-top:12px">
+          Simuler ce pari →
+        </button>
+      </div>
+    </section>
   </main>
+
   <script src="/static/js/core/api.js"></script>
   <script src="/static/js/core/tooltips.js"></script>
   <script src="/static/js/core/charts.js"></script>

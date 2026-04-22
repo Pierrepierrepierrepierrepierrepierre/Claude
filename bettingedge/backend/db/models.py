@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, Text, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, Float, Text, Boolean, UniqueConstraint, Index
 from datetime import datetime, timezone
 from .database import Base
 
@@ -46,15 +46,34 @@ class ModelParam(Base):
 class OddsHistory(Base):
     __tablename__ = "odds_history"
 
-    id          = Column(Integer, primary_key=True, autoincrement=True)
-    event_id    = Column(Text, nullable=False)
-    market      = Column(Text, nullable=False)
-    bookmaker   = Column(Text, default="betclic")
-    odds        = Column(Float, nullable=False)
-    recorded_at = Column(Text, nullable=False, default=_now)
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    event_id     = Column(Text, nullable=False)
+    event_name   = Column(Text)
+    event_date   = Column(Text)
+    sport        = Column(Text)
+    league       = Column(Text)
+    market_type  = Column(Text, nullable=False)  # "1X2", "AH", "OU", "BTTS", etc.
+    bookmaker    = Column(Text, default="betclic")
+
+    # Cotes selon le type de marché
+    odds_home    = Column(Float)   # 1X2 : domicile
+    odds_draw    = Column(Float)   # 1X2 : nul
+    odds_away    = Column(Float)   # 1X2 : extérieur
+    odds_ah_home = Column(Float)   # AH : domicile
+    odds_ah_away = Column(Float)   # AH : extérieur
+    odds_ou_over = Column(Float)   # OU : over
+    odds_ou_under = Column(Float)  # OU : under
+
+    # Boost Betclic
+    is_boost     = Column(Boolean, default=False)
+    boost_odds   = Column(Float)   # cote boostée
+    normal_odds  = Column(Float)   # cote normale avant boost
+    outcome_index = Column(Integer, default=0)  # index issue boostée dans 1X2
+
+    scraped_at   = Column(Text, nullable=False, default=_now)
 
     __table_args__ = (
-        Index("idx_odds_event", "event_id", "recorded_at"),
+        Index("idx_odds_event", "event_id", "scraped_at"),
     )
 
 
@@ -77,6 +96,10 @@ class Portfolio(Base):
     capital_current = Column(Float, nullable=False)
     n_bets          = Column(Integer, default=0)
     updated_at      = Column(Text, nullable=False, default=_now)
+
+    @property
+    def balance(self) -> float:
+        return self.capital_current
 
 
 class ScraperLog(Base):

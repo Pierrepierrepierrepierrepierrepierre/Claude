@@ -53,7 +53,15 @@
 - risk_factor.py : RF composite 5 dimensions — RF = 0.30×F_modèle + 0.20×F_ev + 0.15×F_variance + 0.20×F_calib + 0.15×F_clv
 - Tests : tous les modules passent les tests unitaires ✅
 
-**Prochaine étape :** Epic 3 — Stratégie A (Boosts EV)
+**Epic 3 — Stratégie A (Boosts EV) :** ✅ complet (2026-04-22)
+- strategy_a.py : calculate_boost_ev (consensus multi-marchés), calculate_stake (Kelly×RF), get_boost_opportunities
+- OddsHistory refactorisé : event_name, sport, odds_home/draw/away, odds_ah, odds_ou, is_boost, boost_odds, outcome_index
+- Routes API : POST /api/strategy-a/calculate, GET /api/strategy-a/boosts
+- Frontend : strategy-a.html (liste boosts + calculateur manuel), strategy-a.js
+- CSS : dark theme complété (cards, forms, result panel, badges, tooltips)
+- Tests : EV 9.67% sur boost 3.80 avec 1X2=[2.10,3.40,3.20] → mise 2.43€ (RF=0.28 Faible car 0 paris similaires) ✅
+
+**Prochaine étape :** Epic 4 — Stratégie B (Value Betting niches)
 
 **Ordre des Epics prévu :**
 1. Epic 0 — Setup projet (structure, BDD, FastAPI base)

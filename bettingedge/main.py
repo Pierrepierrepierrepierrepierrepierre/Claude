@@ -6,6 +6,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from pydantic import BaseModel
+from typing import Optional
 from backend.db.database import engine, Base, SessionLocal
 from backend.db.crud import get_all_portfolios, get_last_scraper_status, get_bets
 from backend.db.models import ScraperLog
@@ -167,6 +169,89 @@ def resolve_bet(bet_id: int, result: int, odds_close: float):
     try:
         bet = _resolve(db, bet_id, result, odds_close)
         return {"status": "ok", "ev_realized": bet.ev_realized, "portfolio_after": bet.portfolio_after}
+    finally:
+        db.close()
+
+
+# ── Stratégie A — Boosts EV ──────────────────────────────────────────────────
+
+class BoostCalcRequest(BaseModel):
+    boost_odds: float
+    odds_1x2: Optional[list[float]] = None
+    odds_ah: Optional[list[float]] = None
+    odds_ou: Optional[list[float]] = None
+    weights: Optional[list[float]] = None
+    outcome_index: int = 0
+    portfolio: str = "A"
+    n_similaires: int = 0
+    brier_score: float = 0.20
+    clv_mean: float = 0.0
+
+
+@app.post("/api/strategy-a/calculate")
+def strategy_a_calculate(req: BoostCalcRequest):
+    from backend.strategies.strategy_a import calculate_boost_ev, calculate_stake
+    ev_result = calculate_boost_ev(
+        boost_odds=req.boost_odds,
+        odds_1x2=req.odds_1x2,
+        odds_ah=req.odds_ah,
+        odds_ou=req.odds_ou,
+        weights=req.weights,
+        outcome_index=req.outcome_index,
+    )
+    if "error" in ev_result:
+        raise HTTPException(status_code=400, detail=ev_result["error"])
+
+    db: Session = SessionLocal()
+    try:
+        stake_result = calculate_stake(
+            boost_odds=req.boost_odds,
+            p_consensus=ev_result["p_consensus"],
+            portfolio_name=req.portfolio,
+            db=db,
+            n_similaires=req.n_similaires,
+            brier_score=req.brier_score,
+            clv_mean=req.clv_mean,
+        )
+    finally:
+        db.close()
+
+    return {"status": "ok", "ev": ev_result, "stake": stake_result}
+
+
+@app.get("/api/strategy-a/boosts")
+def strategy_a_boosts():
+    """
+    Retourne les boosts EV+ du dernier scraping Betclic.
+    Pour l'instant retourne une liste vide si pas de données — le scraper
+    doit avoir tourné et marqué des cotes comme is_boost=True.
+    """
+    from backend.db.models import OddsHistory
+    from backend.strategies.strategy_a import get_boost_opportunities
+    db: Session = SessionLocal()
+    try:
+        # Récupère les cotes marquées boost dans les dernières 24h
+        from datetime import datetime, timedelta
+        cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+        rows = db.query(OddsHistory).filter(OddsHistory.scraped_at >= cutoff).all()
+        records = [
+            {
+                "event_name": r.event_name,
+                "market_type": r.market_type,
+                "sport": r.sport,
+                "odds_home": r.odds_home,
+                "odds_draw": r.odds_draw,
+                "odds_away": r.odds_away,
+                "is_boost": r.is_boost,
+                "boost_odds": r.boost_odds,
+                "normal_odds": r.normal_odds,
+                "outcome_index": r.outcome_index or 0,
+                "event_date": r.event_date,
+            }
+            for r in rows
+        ]
+        opportunities = get_boost_opportunities(db, records)
+        return {"status": "ok", "data": opportunities, "count": len(opportunities)}
     finally:
         db.close()
 
