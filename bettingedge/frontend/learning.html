@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>BettingEdge — learning</title>
+  <title>BettingEdge — Backtest & Apprentissage</title>
   <link rel="stylesheet" href="/static/css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -14,16 +14,117 @@
     <a href="/strategy-b">Stratégie B</a>
     <a href="/strategy-c">Stratégie C</a>
     <a href="/simulation">Simulation</a>
-    <a href="/learning" class="active">Apprentissage</a>
+    <a href="/learning" class="active">Backtest</a>
     <a href="/docs">Documentation</a>
   </nav>
+
   <main class="content">
-    <h1>Learning</h1>
-    <p class="loading">Page en cours de développement — Epic correspondant à venir.</p>
+    <div class="page-header">
+      <h1>📊 Backtest Stratégie B</h1>
+      <p class="subtitle">
+        Rejoue la stratégie sur les ~1700 matchs déjà joués cette saison
+        (cotes Pinnacle closing).
+        <strong>⚠️ In-sample</strong> — le modèle DC est calibré sur ces matchs,
+        donc le ROI est optimiste vs ce qu'on aura en live.
+      </p>
+    </div>
+
+    <section class="card">
+      <div class="card-header">
+        <h2>Paramètres</h2>
+      </div>
+      <form id="bt-form" onsubmit="runBacktest(event)" class="form-grid" style="align-items:end">
+        <div class="form-group">
+          <label>Seuil EV minimum (par défaut 2%)</label>
+          <input type="number" id="bt-ev" value="0.02" step="0.01" min="0" max="0.50">
+        </div>
+        <div class="form-group">
+          <label>Mise flat (€)</label>
+          <input type="number" id="bt-stake" value="10" step="1" min="1">
+        </div>
+        <div class="form-group">
+          <label>Ligues (vide = toutes)</label>
+          <select id="bt-leagues" multiple size="4" style="height:90px">
+            <option value="ligue1">Ligue 1</option>
+            <option value="premier_league">Premier League</option>
+            <option value="liga">La Liga</option>
+            <option value="serie_a">Serie A</option>
+            <option value="bundesliga">Bundesliga</option>
+            <option value="ligue2">Ligue 2</option>
+          </select>
+          <small class="text-muted">Ctrl+clic pour sélection multiple</small>
+        </div>
+        <div class="form-group">
+          <button type="submit" class="btn-primary" id="bt-submit">▶ Lancer le backtest</button>
+        </div>
+      </form>
+    </section>
+
+    <p class="loading hidden" id="bt-loading">Backtest en cours… ~5-10 sec</p>
+
+    <div id="bt-results" class="hidden">
+      <!-- KPIs globaux -->
+      <section class="card">
+        <div class="card-header"><h2>Résultats globaux</h2></div>
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <h3>Paris simulés</h3>
+            <div class="kpi-value" id="bt-n">—</div>
+          </div>
+          <div class="kpi-card">
+            <h3>Hit rate</h3>
+            <div class="kpi-value" id="bt-hit">—</div>
+          </div>
+          <div class="kpi-card">
+            <h3>ROI</h3>
+            <div class="kpi-value" id="bt-roi">—</div>
+            <div class="kpi-meta" id="bt-roi-meta">—</div>
+          </div>
+          <div class="kpi-card">
+            <h3>Profit</h3>
+            <div class="kpi-value" id="bt-profit">—</div>
+            <div class="kpi-meta">sur <span id="bt-stake-tot">0</span>€ misés</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Breakdown par niche -->
+      <section class="card">
+        <div class="card-header"><h2>Performance par niche</h2></div>
+        <table class="data-table">
+          <thead>
+            <tr><th>Niche</th><th>Paris</th><th>Hit rate</th><th>ROI</th><th>Profit</th></tr>
+          </thead>
+          <tbody id="bt-niche-body"></tbody>
+        </table>
+      </section>
+
+      <!-- Breakdown par ligue -->
+      <section class="card">
+        <div class="card-header"><h2>Performance par ligue</h2></div>
+        <table class="data-table">
+          <thead>
+            <tr><th>Ligue</th><th>Paris</th><th>ROI</th><th>Profit</th></tr>
+          </thead>
+          <tbody id="bt-league-body"></tbody>
+        </table>
+      </section>
+
+      <!-- Top 20 paris EV+ extrêmes -->
+      <section class="card">
+        <div class="card-header"><h2>Top 20 paris EV extrêmes (positifs et négatifs)</h2></div>
+        <table class="data-table">
+          <thead>
+            <tr><th>Date</th><th>Match</th><th>Niche</th><th>P</th><th>Cote</th><th>EV</th><th>Mise</th><th>Résultat</th></tr>
+          </thead>
+          <tbody id="bt-bets-body"></tbody>
+        </table>
+      </section>
+    </div>
   </main>
+
   <script src="/static/js/core/api.js"></script>
   <script src="/static/js/core/tooltips.js"></script>
-  <script src="/static/js/core/charts.js"></script>
   <script src="/static/js/learning.js"></script>
 </body>
 </html>

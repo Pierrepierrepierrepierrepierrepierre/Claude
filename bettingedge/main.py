@@ -685,6 +685,80 @@ def run_pipeline_manual():
         db.close()
 
 
+# ── Backtest (Phase D — validation rétrospective sur historique) ────────────
+
+# Cache en mémoire pour éviter de re-télécharger les CSVs à chaque appel
+_BACKTEST_CACHE: dict = {}
+
+
+@app.post("/api/backtest/run")
+def backtest_run(
+    ev_threshold: float = 0.02,
+    flat_stake: float = 10.0,
+    leagues: Optional[str] = None,  # CSV ex "ligue1,premier_league"
+):
+    """
+    Rejoue la Stratégie B sur les CSVs football-data (~1700 matchs).
+    Cotes Pinnacle closing comme proxy 'Betclic'.
+    Retourne les KPIs (ROI, hit rate, breakdown par niche/ligue).
+
+    ⚠️ In-sample (DC calibré sur ces mêmes matchs) → ROI optimiste.
+    """
+    from backend.learning.backtest import run_backtest
+    leagues_list = leagues.split(",") if leagues else None
+    try:
+        result = run_backtest(
+            ev_threshold=ev_threshold,
+            flat_stake=flat_stake,
+            leagues=leagues_list,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    summary = result.summary()
+    # Stocke les bets dans le cache pour permettre une analyse plus fine ensuite
+    _BACKTEST_CACHE["last"] = {
+        "summary": summary,
+        "bets": [{
+            "league": b.league, "date": b.date,
+            "match": f"{b.home} - {b.away}",
+            "niche": b.niche,
+            "p": round(b.p_estimated * 100, 2),
+            "odds": b.odds_taken,
+            "ev_pct": round(b.ev_expected * 100, 2),
+            "stake": b.stake,
+            "won": b.won,
+            "profit": b.profit,
+        } for b in result.bets],
+        "params": {
+            "ev_threshold": ev_threshold,
+            "flat_stake":  flat_stake,
+            "leagues":     leagues_list or list(LEAGUES_KEYS),
+        },
+    }
+    return {"status": "ok", "data": summary}
+
+
+# Liste des ligues exposée pour le frontend
+LEAGUES_KEYS = ["ligue1", "premier_league", "liga", "serie_a", "bundesliga", "ligue2"]
+
+
+@app.get("/api/backtest/last")
+def backtest_last():
+    """Renvoie le résultat du dernier backtest (summary + sample des bets)."""
+    cached = _BACKTEST_CACHE.get("last")
+    if not cached:
+        return {"status": "empty", "message": "Aucun backtest lancé pour l'instant"}
+    # On ne renvoie que les 100 paris les plus extrêmes (en EV) pour limiter la payload
+    bets = sorted(cached["bets"], key=lambda b: -abs(b["ev_pct"]))[:100]
+    return {
+        "status": "ok",
+        "summary": cached["summary"],
+        "sample_bets": bets,
+        "params": cached["params"],
+    }
+
+
 # ── Static files & pages ──────────────────────────────────────────────────────
 
 frontend_dir = os.path.join(os.path.dirname(__file__), "frontend")
