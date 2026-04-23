@@ -133,7 +133,8 @@
         </div>
         <div class="form-group">
           <label>Cote de clôture (pour CLV) <span class="tooltip-icon" data-tip="clv">?</span></label>
-          <input type="number" id="resolve-odds-close" step="0.01" min="1.01" placeholder="Optionnel">
+          <input type="number" id="resolve-odds-close" step="0.01" min="1.01" placeholder="Laisser vide → auto-fetch Pinnacle">
+          <small class="text-muted">Vide = récupération auto depuis football-data.co.uk après match joué.</small>
         </div>
         <div style="display:flex;gap:8px;margin-top:16px">
           <button class="btn-primary" onclick="submitResolve()">Confirmer</button>

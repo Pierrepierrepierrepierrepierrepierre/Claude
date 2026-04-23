@@ -76,6 +76,16 @@ function renderBets(bets) {
   table.classList.remove('hidden');
 }
 
+function toggleCalc() {
+  const form = document.getElementById('calc-form');
+  const result = document.getElementById('calc-result');
+  const btn = document.getElementById('calc-toggle');
+  const collapsed = form.classList.contains('hidden');
+  form.classList.toggle('hidden', !collapsed);
+  if (!collapsed && result) result.classList.add('hidden');
+  btn.textContent = collapsed ? '▼ Calculateur manuel (avancé)' : '▶ Calculateur manuel (avancé)';
+}
+
 function formatVariation(v) {
   if (!v || v.delta_pct == null) return '<span class="text-muted">—</span>';
   // Cote qui baisse = sharp money sur cette issue (signal positif)

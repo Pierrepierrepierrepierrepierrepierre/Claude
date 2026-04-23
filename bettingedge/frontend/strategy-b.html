@@ -78,14 +78,18 @@
       </p>
     </section>
 
-    <!-- Calculateur manuel -->
+    <!-- Calculateur manuel (caché par défaut, utile pour explorer une cote hors recos) -->
     <section class="card">
       <div class="card-header">
-        <h2>Calculateur manuel</h2>
+        <h2>
+          <button type="button" class="btn-link" onclick="toggleCalc()" id="calc-toggle">
+            ▶ Calculateur manuel (avancé)
+          </button>
+        </h2>
         <span class="badge badge-blue">Toutes niches</span>
       </div>
 
-      <form id="calc-form" onsubmit="calculate(event)">
+      <form id="calc-form" class="hidden" onsubmit="calculate(event)">
         <div class="form-grid">
           <div class="form-group">
             <label>Niche</label>

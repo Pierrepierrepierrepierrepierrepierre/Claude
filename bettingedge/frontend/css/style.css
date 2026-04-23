@@ -258,7 +258,21 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .data-table { width: 100%; }
 
 /* Badges extended */
-.badge-blue { background: rgba(79,142,247,0.15); color: var(--accent); }
+.badge-blue  { background: rgba(79,142,247,0.15); color: var(--accent); }
+.badge-green { background: rgba(46,204,113,0.15); color: var(--green); }
+
+/* Bouton-lien (look texte cliquable) */
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: inherit;
+  font-weight: inherit;
+  padding: 0;
+  text-align: left;
+}
+.btn-link:hover { text-decoration: underline; }
 
 /* Form layout */
 .form-grid {

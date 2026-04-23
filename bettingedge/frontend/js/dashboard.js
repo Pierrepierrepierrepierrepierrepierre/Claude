@@ -1,8 +1,10 @@
 let perfChart = null;
+let allRecos = [];
 
 document.addEventListener('DOMContentLoaded', () => {
   initTooltips();
   loadDashboard();
+  loadRecos();
 });
 
 async function loadDashboard() {
@@ -167,4 +169,124 @@ async function runScraper(name) {
   } catch (e) {
     alert('Erreur : ' + e.message);
   }
+}
+
+// ── Recommandations du jour ────────────────────────────────────────────────
+
+async function loadRecos() {
+  const loading = document.getElementById('recos-loading');
+  const table = document.getElementById('recos-table');
+  const empty = document.getElementById('recos-empty');
+  loading.classList.remove('hidden');
+  table.classList.add('hidden');
+  empty.classList.add('hidden');
+
+  try {
+    const data = await API.get('/api/recommendations');
+    allRecos = (data.data || []).sort((a, b) => (b.ev || 0) - (a.ev || 0));
+    loading.classList.add('hidden');
+    renderRecos();
+  } catch (e) {
+    loading.textContent = 'Erreur lors du chargement des recommandations.';
+  }
+}
+
+function reloadRecos() {
+  // Force rerun pipeline puis reload
+  API.post('/api/pipeline/run', {})
+    .then(() => loadRecos())
+    .catch(() => loadRecos());
+}
+
+function renderRecos() {
+  const sport = document.getElementById('recos-sport').value;
+  const strategy = document.getElementById('recos-strategy').value;
+  const conf = document.getElementById('recos-conf').value;
+
+  let recos = allRecos;
+  if (sport) recos = recos.filter(r => r.sport === sport);
+  if (strategy) recos = recos.filter(r => r.strategy === strategy);
+  if (conf === 'high') recos = recos.filter(r => r.confidence === 'high');
+  else if (conf === 'medium') recos = recos.filter(r => r.confidence !== 'low');
+
+  const table = document.getElementById('recos-table');
+  const empty = document.getElementById('recos-empty');
+  const tbody = document.getElementById('recos-body');
+
+  if (recos.length === 0) {
+    empty.classList.remove('hidden');
+    table.classList.add('hidden');
+    return;
+  }
+
+  tbody.innerHTML = '';
+  for (const r of recos) {
+    const sportIcon = r.sport === 'football' ? '⚽' : r.sport === 'tennis' ? '🎾' : '•';
+    const stratBadge = r.strategy === 'A'
+      ? '<span class="badge badge-blue">A</span>'
+      : '<span class="badge badge-green">B</span>';
+    const evClass = r.ev_pct >= 20 ? 'ev-high' : r.ev_pct >= 8 ? 'ev-ok' : '';
+    const valClass = r.value_pct >= 10 ? 'text-green bold' : r.value_pct >= 5 ? 'text-green' : '';
+    const confBadge = {
+      high:   '<span class="badge positive" title="Tous les params connus">●●●</span>',
+      medium: '<span class="badge neutral" title="Params partiels">●●○</span>',
+      low:    '<span class="badge negative" title="Match flou ou peu de données">●○○</span>',
+    }[r.confidence] || '';
+
+    // Outcome court depuis description : "Nul (PSG - Nantes)" -> "Nul"
+    const shortDesc = (r.description || '').split('(')[0].trim() || r.niche;
+    const eventName = r.event_name || (r.home_team && r.away_team ? `${r.home_team} - ${r.away_team}` : r.player_a + ' - ' + r.player_b);
+    const eventDate = r.event_date ? r.event_date.slice(0, 16).replace('T', ' ') : '—';
+
+    tbody.insertAdjacentHTML('beforeend', `
+      <tr>
+        <td>${sportIcon} ${stratBadge}</td>
+        <td><strong>${eventName}</strong>${r.league ? `<br><small class="text-muted">${r.league}</small>` : ''}</td>
+        <td>${shortDesc} ${confBadge}</td>
+        <td>${(r.p_estimated * 100).toFixed(1)}%</td>
+        <td class="odds-normal">${r.odds_fair?.toFixed(2)}</td>
+        <td class="odds-val">${r.odds_betclic?.toFixed(2)}</td>
+        <td>${formatVar(r.variation)}</td>
+        <td class="${valClass}">+${r.value_pct?.toFixed(1)}%</td>
+        <td class="${evClass}">+${r.ev_pct?.toFixed(1)}%</td>
+        <td>${r.rf?.toFixed(2)}<br><small class="text-muted">${r.rf_label}</small></td>
+        <td><strong>${r.stake?.toFixed(2)} €</strong></td>
+        <td><small class="text-muted">${eventDate}</small></td>
+        <td><button class="btn-xs btn-primary" onclick='placeBet(${JSON.stringify(r)})'>Parier</button></td>
+      </tr>
+    `);
+  }
+  table.classList.remove('hidden');
+}
+
+function formatVar(v) {
+  if (!v || v.delta_pct == null) return '<span class="text-muted">—</span>';
+  const cls = v.delta_pct < 0 ? 'text-green' : v.delta_pct > 0 ? 'text-red' : 'text-muted';
+  const sign = v.delta_pct > 0 ? '+' : '';
+  const arrow = v.delta_pct < 0 ? '↘' : v.delta_pct > 0 ? '↗' : '→';
+  return `<span class="${cls}" title="${v.first} → ${v.last} sur ${v.n_snapshots} snap, ${v.span_hours}h">${arrow} ${sign}${v.delta_pct.toFixed(1)}%</span>`;
+}
+
+function placeBet(reco) {
+  // Encode l'outcome (home/draw/away) pour que features_json puisse être utilisé au resolve
+  const desc = (reco.description || '').toLowerCase();
+  let outcome = '';
+  if (desc.includes('nul') || desc.includes('draw')) outcome = 'draw';
+  else if (desc.includes('domicile') || desc.includes('home')) outcome = 'home';
+  else if (desc.includes('extérieur') || desc.includes('away')) outcome = 'away';
+
+  const params = new URLSearchParams({
+    strategy: reco.strategy,
+    market: (reco.description || reco.niche).slice(0, 60),
+    sport: reco.sport,
+    odds: reco.odds_betclic,
+    stake: reco.stake?.toFixed(2),
+    ev: reco.ev,
+    p: reco.p_estimated,
+    league: reco.league || '',
+    event_name: reco.event_name || '',
+    event_date: reco.event_date || '',
+    outcome: outcome,
+  });
+  window.location.href = '/simulation?' + params.toString();
 }

@@ -6,6 +6,9 @@ document.addEventListener('DOMContentLoaded', () => {
   prefillFromParams();
 });
 
+// Métadonnées d'événement passées par la page Recos pour le auto-CLV au resolve
+let pendingMeta = {};
+
 function prefillFromParams() {
   const params = new URLSearchParams(window.location.search);
   if (!params.get('strategy')) return;
@@ -17,6 +20,16 @@ function prefillFromParams() {
   document.getElementById('f-stake').value = params.get('stake') || '';
   document.getElementById('f-ev').value = params.get('ev') || '';
   document.getElementById('f-p').value = params.get('p') || '';
+  if (document.getElementById('f-league'))
+    document.getElementById('f-league').value = params.get('league') || '';
+
+  // Stocker les métadonnées pour les inclure dans features_json
+  pendingMeta = {
+    event_name: params.get('event_name') || '',
+    event_date: params.get('event_date') || '',
+    league: params.get('league') || '',
+    outcome: params.get('outcome') || '',
+  };
 
   // Ouvrir le formulaire automatiquement
   document.getElementById('bet-form').classList.remove('hidden');
@@ -29,6 +42,13 @@ function toggleForm() {
 
 async function recordBet(e) {
   e.preventDefault();
+  // features_json embarque event_name + league + outcome pour l'auto-CLV au resolve
+  const features = {
+    event_name: pendingMeta.event_name || '',
+    event_date: pendingMeta.event_date || '',
+    league:     pendingMeta.league     || document.getElementById('f-league').value || '',
+    outcome:    pendingMeta.outcome    || '',
+  };
   const body = {
     strategy: document.getElementById('f-strategy').value,
     market: document.getElementById('f-market').value,
@@ -37,8 +57,8 @@ async function recordBet(e) {
     stake: parseFloat(document.getElementById('f-stake').value),
     p_estimated: parseFloat(document.getElementById('f-p').value) || 0.5,
     ev_expected: parseFloat(document.getElementById('f-ev').value) || 0.0,
-    league: document.getElementById('f-league').value || null,
-    features_json: '{}',
+    league: features.league || null,
+    features_json: JSON.stringify(features),
   };
 
   try {
@@ -136,13 +156,20 @@ function closeModal() {
 async function submitResolve() {
   if (!currentResolveBetId) return;
   const result = parseInt(document.getElementById('resolve-result').value);
-  const oddsClose = parseFloat(document.getElementById('resolve-odds-close').value) || 0;
+  const oddsCloseRaw = document.getElementById('resolve-odds-close').value.trim();
+
+  // Si vide → on n'envoie pas le param et l'API auto-fetch via Pinnacle
+  let url = `/api/simulation/resolve-bet?bet_id=${currentResolveBetId}&result=${result}`;
+  if (oddsCloseRaw) {
+    const v = parseFloat(oddsCloseRaw);
+    if (v > 1.0) url += `&odds_close=${v}`;
+  }
 
   try {
-    await API.post(
-      `/api/simulation/resolve-bet?bet_id=${currentResolveBetId}&result=${result}&odds_close=${oddsClose || 1.0}`,
-      {}
-    );
+    const res = await API.post(url, {});
+    if (res?.odds_close_used) {
+      console.log(`CLV calculé avec cote clôture ${res.odds_close_used}`);
+    }
     closeModal();
     loadBets();
   } catch (err) {

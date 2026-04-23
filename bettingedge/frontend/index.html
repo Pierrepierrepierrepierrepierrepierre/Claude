@@ -34,6 +34,56 @@
 
     <div id="scraper-alert" class="alert alert-warn hidden"></div>
 
+    <!-- Recommandations du jour -->
+    <section class="card" style="margin-bottom:24px">
+      <div class="card-header">
+        <h2>📋 Recommandations du jour</h2>
+        <div class="filter-bar">
+          <select id="recos-sport" onchange="renderRecos()">
+            <option value="">Tous sports</option>
+            <option value="football">⚽ Football</option>
+            <option value="tennis">🎾 Tennis</option>
+          </select>
+          <select id="recos-strategy" onchange="renderRecos()">
+            <option value="">Toutes stratégies</option>
+            <option value="A">A — Boosts</option>
+            <option value="B">B — Value</option>
+          </select>
+          <select id="recos-conf" onchange="renderRecos()">
+            <option value="">Toutes confiances</option>
+            <option value="high">High only</option>
+            <option value="medium">Medium+</option>
+          </select>
+          <button class="btn-secondary btn-sm" onclick="reloadRecos()">↻ Actualiser</button>
+        </div>
+      </div>
+
+      <p class="loading" id="recos-loading">Chargement…</p>
+      <table class="data-table hidden" id="recos-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Match</th>
+            <th>Pari</th>
+            <th>P modèle</th>
+            <th>Cote juste</th>
+            <th>Cote Betclic</th>
+            <th>Évol.</th>
+            <th>Value</th>
+            <th>EV</th>
+            <th>RF</th>
+            <th>Mise reco</th>
+            <th>Quand</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="recos-body"></tbody>
+      </table>
+      <p class="empty-state hidden" id="recos-empty">
+        Aucune recommandation. Lance d'abord le scraper Betclic puis le pipeline.
+      </p>
+    </section>
+
     <!-- KPI cards des 3 portefeuilles -->
     <div class="kpi-grid" id="kpi-grid">
       <div class="kpi-card" id="kpi-A">
