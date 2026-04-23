@@ -716,7 +716,8 @@ def backtest_run(
         raise HTTPException(status_code=500, detail=str(e))
 
     summary = result.summary()
-    # Stocke les bets dans le cache pour permettre une analyse plus fine ensuite
+    # Stocke aussi l'objet BacktestResult complet pour l'export Excel
+    _BACKTEST_CACHE["last_result"] = result
     _BACKTEST_CACHE["last"] = {
         "summary": summary,
         "bets": [{
@@ -757,6 +758,31 @@ def backtest_last():
         "sample_bets": bets,
         "params": cached["params"],
     }
+
+
+@app.get("/api/backtest/export.xlsx")
+def backtest_export_xlsx():
+    """Télécharge le dernier backtest en Excel multi-feuilles."""
+    from fastapi.responses import Response
+    from backend.learning.backtest import run_backtest
+    from backend.learning.backtest_export import export_to_xlsx
+
+    cached = _BACKTEST_CACHE.get("last_result")
+    params = (_BACKTEST_CACHE.get("last") or {}).get("params") or {}
+
+    # Si pas de résultat en cache, on relance un backtest avec les params par défaut
+    if cached is None:
+        cached = run_backtest()
+        _BACKTEST_CACHE["last_result"] = cached
+
+    blob = export_to_xlsx(cached, params=params)
+    from datetime import datetime
+    fname = f"backtest_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 # ── Static files & pages ──────────────────────────────────────────────────────
