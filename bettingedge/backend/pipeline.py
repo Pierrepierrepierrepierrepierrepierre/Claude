@@ -376,24 +376,42 @@ def run_pipeline(
 
     Retourne le nombre de recommandations conservées.
     """
+    import re as _re
     now = datetime.now(timezone.utc)
     scrape_cutoff = (now - timedelta(hours=24)).isoformat()
-    horizon_end = (now + timedelta(hours=horizon_hours)).isoformat()
-    horizon_start = now.isoformat()
+    horizon_end_dt = now + timedelta(hours=horizon_hours)
+
+    def _parse_event_dt(raw: str | None) -> datetime | None:
+        """Best-effort : ISO complet, "YYYY-MM-DD" ou juste "HH:MM" (Betclic
+        renvoie souvent que l'heure → on assume aujourd'hui ou demain selon
+        si l'heure est passée ou pas)."""
+        if not raw:
+            return None
+        try:
+            if "T" in raw:
+                return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if _re.match(r"^\d{4}-\d{2}-\d{2}$", raw):
+                return datetime.fromisoformat(raw + "T00:00:00+00:00")
+            m = _re.match(r"^(\d{1,2}):(\d{2})$", raw)
+            if m:
+                hh, mm = int(m.group(1)), int(m.group(2))
+                today = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                # Si l'heure est passée d'au moins 30 min, c'est demain
+                return today if today >= now - timedelta(minutes=30) else today + timedelta(days=1)
+        except Exception:
+            return None
+        return None
 
     # Événements scrapés récemment ET dont event_date est dans la fenêtre
     events_q = db.query(OddsHistory).filter(OddsHistory.scraped_at >= scrape_cutoff)
     events = []
     for e in events_q.all():
-        # Garder si event_date manquant (sécurité) ou dans la fenêtre [now, now+horizon]
         if not e.event_date:
             events.append(e); continue
-        try:
-            # event_date au format ISO ou "YYYY-MM-DDTHH:MM:SS"
-            ed = e.event_date if "T" in e.event_date else e.event_date + "T00:00:00"
-            if horizon_start <= ed <= horizon_end:
-                events.append(e)
-        except Exception:
+        ed = _parse_event_dt(e.event_date)
+        if ed is None:
+            events.append(e); continue  # safety : on garde si parse foireux
+        if now - timedelta(minutes=30) <= ed <= horizon_end_dt:
             events.append(e)
 
     if not events:
