@@ -117,12 +117,49 @@
         </table>
       </section>
 
-      <!-- Top 20 paris EV+ extrêmes -->
+      <!-- Détail des paris (dynamique : tri + filtre + pagination) -->
       <section class="card">
-        <div class="card-header"><h2>Top 20 paris EV extrêmes (positifs et négatifs)</h2></div>
+        <div class="card-header">
+          <h2>Détail des paris simulés (<span id="bt-bets-count">0</span>)</h2>
+          <div class="filter-bar">
+            <label style="font-size:0.82rem;color:var(--text-muted)">Tri :</label>
+            <select id="bt-sort" onchange="renderBetsTable()">
+              <option value="ev_desc">EV ↓ (meilleurs)</option>
+              <option value="ev_asc">EV ↑ (pires)</option>
+              <option value="profit_desc">Profit ↓</option>
+              <option value="profit_asc">Profit ↑ (pires pertes)</option>
+              <option value="odds_desc">Cote ↓</option>
+              <option value="odds_asc">Cote ↑</option>
+              <option value="abs_ev_desc">|EV| extrême</option>
+              <option value="date_desc">Date récent → ancien</option>
+              <option value="date_asc">Date ancien → récent</option>
+            </select>
+
+            <select id="bt-filter-niche" onchange="renderBetsTable()">
+              <option value="">Toutes niches</option>
+            </select>
+
+            <select id="bt-filter-league" onchange="renderBetsTable()">
+              <option value="">Toutes ligues</option>
+            </select>
+
+            <select id="bt-filter-result" onchange="renderBetsTable()">
+              <option value="">Tous résultats</option>
+              <option value="won">Gagnés</option>
+              <option value="lost">Perdus</option>
+            </select>
+
+            <select id="bt-limit" onchange="renderBetsTable()">
+              <option value="20">20 lignes</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="0">Toutes</option>
+            </select>
+          </div>
+        </div>
         <table class="data-table">
           <thead>
-            <tr><th>Date</th><th>Match</th><th>Niche</th><th>P</th><th>Cote</th><th>EV</th><th>Mise</th><th>Résultat</th></tr>
+            <tr><th>Date</th><th>Match</th><th>Ligue</th><th>Niche</th><th>P</th><th>Cote</th><th>EV</th><th>Mise</th><th>Profit</th><th>Résultat</th></tr>
           </thead>
           <tbody id="bt-bets-body"></tbody>
         </table>

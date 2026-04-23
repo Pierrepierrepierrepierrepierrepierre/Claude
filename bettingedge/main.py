@@ -745,17 +745,24 @@ LEAGUES_KEYS = ["ligue1", "premier_league", "liga", "serie_a", "bundesliga", "li
 
 
 @app.get("/api/backtest/last")
-def backtest_last():
-    """Renvoie le résultat du dernier backtest (summary + sample des bets)."""
+def backtest_last(limit: int = 0):
+    """Renvoie le résultat du dernier backtest.
+
+    `limit=0` (défaut) → renvoie TOUS les paris (706 dans le cas standard).
+    Le frontend gère tri/filtres/pagination côté client (rapide < 1000 lignes).
+    """
     cached = _BACKTEST_CACHE.get("last")
     if not cached:
         return {"status": "empty", "message": "Aucun backtest lancé pour l'instant"}
-    # On ne renvoie que les 100 paris les plus extrêmes (en EV) pour limiter la payload
-    bets = sorted(cached["bets"], key=lambda b: -abs(b["ev_pct"]))[:100]
+    bets = cached["bets"]
+    if limit > 0:
+        # Tri par |EV| décroissant pour exposer les plus extrêmes
+        bets = sorted(bets, key=lambda b: -abs(b["ev_pct"]))[:limit]
     return {
         "status": "ok",
         "summary": cached["summary"],
-        "sample_bets": bets,
+        "sample_bets": bets,        # alias historique
+        "all_bets":    cached["bets"],  # tous les paris pour le tableau dynamique
         "params": cached["params"],
     }
 
