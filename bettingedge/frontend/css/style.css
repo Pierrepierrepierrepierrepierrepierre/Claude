@@ -344,9 +344,10 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .verdict-nok { background: rgba(231,76,60,0.1); border: 1px solid var(--red); color: var(--red); }
 
 /* Text colors */
-.text-green { color: var(--green); }
-.text-red { color: var(--red); }
-.text-muted { color: var(--text-muted); }
+.text-green  { color: var(--green); }
+.text-red    { color: var(--red); }
+.text-orange { color: #e67e22; }
+.text-muted  { color: var(--text-muted); }
 
 /* EV badges in tables */
 .ev-high { color: var(--green); font-weight: 700; }

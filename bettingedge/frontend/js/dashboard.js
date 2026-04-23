@@ -138,28 +138,92 @@ function renderCompareTable(portfolios) {
   });
 }
 
+// Métadonnées par scraper : ce qu'il fait + fréquence cible + alerte
+const SCRAPER_META = {
+  betclic: {
+    label: 'Betclic',
+    covers: 'Cotes live des matchs (foot 1X2 + BTTS, tennis match-winner)',
+    target_freq: '1×/jour minimum',
+    stale_hours: 24,
+    button_label: '🔄 Re-scraper (5 min, ouvre Chromium)',
+    confirm: 'Lance un scrape Betclic complet ? Ouvre une fenêtre Chromium pour ~5 min.',
+  },
+  fbref: {
+    label: 'football-data.co.uk',
+    covers: 'Calibration Dixon-Coles (équipes top-5 + L2) + corners/cartons',
+    target_freq: '1×/semaine',
+    stale_hours: 24 * 7,
+    button_label: 'Recalibrer (~30 sec)',
+    confirm: 'Recalibrer Dixon-Coles depuis les CSVs football-data ? ~30 sec.',
+  },
+  tennis_abstract: {
+    label: 'tennis_atp / wta (Sackmann)',
+    covers: 'Ace rate + double fautes par joueur ATP/WTA × surface',
+    target_freq: '1×/semaine',
+    stale_hours: 24 * 7,
+    button_label: 'Recalibrer (~10 sec)',
+    confirm: 'Recharger les datasets Sackmann ATP/WTA ? ~10 sec.',
+  },
+};
+
+function _ageColor(ranIso, staleHours) {
+  if (!ranIso) return 'text-red';
+  const ageH = (Date.now() - new Date(ranIso)) / 3600000;
+  if (ageH > staleHours) return 'text-red';
+  if (ageH > staleHours / 2) return 'text-orange';
+  return 'text-green';
+}
+
+function _ageLabel(ranIso) {
+  if (!ranIso) return 'Jamais';
+  const ageH = (Date.now() - new Date(ranIso)) / 3600000;
+  if (ageH < 1) return `il y a ${Math.round(ageH * 60)} min`;
+  if (ageH < 48) return `il y a ${Math.round(ageH)} h`;
+  return `il y a ${Math.round(ageH / 24)} j`;
+}
+
 function renderScraperTable(statuses) {
   if (!statuses) return;
   const tbody = document.getElementById('scraper-body');
   tbody.innerHTML = '';
   for (const [name, s] of Object.entries(statuses)) {
+    const meta = SCRAPER_META[name] || {
+      label: name, covers: '', target_freq: '', stale_hours: 24,
+      button_label: 'Lancer', confirm: 'Lancer ce scraper ?'
+    };
+    const ageCls = _ageColor(s.ran_at, meta.stale_hours);
+    const ageStr = _ageLabel(s.ran_at);
     const badge = s.status === 'ok'
       ? '<span class="badge positive">OK</span>'
       : s.status === 'jamais'
-      ? '<span class="badge neutral">Jamais</span>'
-      : '<span class="badge negative">' + s.status + '</span>';
+      ? '<span class="badge neutral">Jamais lancé</span>'
+      : '<span class="badge negative">Erreur</span>';
+    const tooltip = s.message ? `title="${s.message.replace(/"/g, '&quot;')}"` : '';
     tbody.insertAdjacentHTML('beforeend', `
-      <tr>
-        <td><strong>${name}</strong></td>
-        <td>${s.ran_at ? s.ran_at.slice(0, 16).replace('T', ' ') : '—'}</td>
+      <tr ${tooltip}>
+        <td><strong>${meta.label}</strong></td>
+        <td><small class="text-muted">${meta.covers}</small></td>
+        <td><small class="text-muted">${meta.target_freq}</small></td>
+        <td class="${ageCls} bold">${ageStr}<br><small class="text-muted">${s.ran_at ? s.ran_at.slice(0,16).replace('T',' ') : ''}</small></td>
         <td>${badge}</td>
-        <td class="text-muted" style="font-size:0.8rem">${s.message || ''}</td>
-        <td>
-          <button class="btn-xs" onclick="runScraper('${name}')">Lancer</button>
-        </td>
+        <td><button class="btn-xs" onclick="runScraperConfirm('${name}')">${meta.button_label}</button></td>
       </tr>
     `);
   }
+}
+
+function toggleDiag() {
+  const c = document.getElementById('diag-content');
+  const btn = document.getElementById('diag-toggle');
+  const open = !c.classList.contains('hidden');
+  c.classList.toggle('hidden', open);
+  btn.textContent = open ? '▶ 🔧 Diagnostic & maintenance scrapers' : '▼ 🔧 Diagnostic & maintenance scrapers';
+}
+
+async function runScraperConfirm(name) {
+  const meta = SCRAPER_META[name] || { confirm: 'Lancer ce scraper ?' };
+  if (!confirm(meta.confirm)) return;
+  await runScraper(name);
 }
 
 async function runScraper(name) {

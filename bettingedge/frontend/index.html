@@ -131,15 +131,35 @@
       </table>
     </section>
 
-    <!-- Statut scrapers -->
+    <!-- Diagnostic Scrapers (collapsé par défaut) -->
     <section class="card">
-      <div class="card-header"><h2>Scrapers</h2></div>
-      <table class="data-table" id="scraper-table">
-        <thead>
-          <tr><th>Scraper</th><th>Dernier run</th><th>Statut</th><th>Message</th><th></th></tr>
-        </thead>
-        <tbody id="scraper-body"></tbody>
-      </table>
+      <div class="card-header">
+        <h2>
+          <button type="button" class="btn-link" id="diag-toggle" onclick="toggleDiag()">
+            ▶ 🔧 Diagnostic & maintenance scrapers
+          </button>
+        </h2>
+      </div>
+      <div id="diag-content" class="hidden">
+        <p class="text-muted" style="margin:0 0 12px;font-size:0.85rem">
+          État des sources de données. Tu n'as <strong>normalement pas besoin de toucher à ça</strong> :
+          le scraper Betclic se relance tout seul au démarrage de l'app et via le bouton
+          "🔄 Rafraîchir cotes Betclic" en haut. Les deux autres ne se relancent qu'~1 fois par semaine.
+        </p>
+        <table class="data-table" id="scraper-table">
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>Couvre</th>
+              <th>Fréquence cible</th>
+              <th>Dernier run</th>
+              <th>Statut</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="scraper-body"></tbody>
+        </table>
+      </div>
     </section>
   </main>
 
