@@ -138,11 +138,32 @@ def analyze_football(event: OddsHistory, params: dict, balance_b: float, db: Ses
             "stake_recommended": stake,
         })
 
-    # ── BTTS ──
-    if event.odds_draw and p_btts > 0:
-        # Betclic ne stocke pas les cotes BTTS dans notre schéma pour l'instant
-        # On utilise une cote estimée si on avait une référence ; skip si pas de cote BTTS
-        pass
+    # ── BTTS Yes / No ──
+    for p_est, odds_betclic, desc, label in [
+        (p_btts,        event.odds_btts_yes, "Les 2 marquent : Oui", "btts_yes"),
+        (1.0 - p_btts,  event.odds_btts_no,  "Les 2 marquent : Non", "btts_no"),
+    ]:
+        if not odds_betclic or p_est <= 0:
+            continue
+        odds_fair = round(1 / p_est, 3)
+        val = compute_value(odds_betclic, odds_fair)
+        if val <= settings.ev_threshold_b:
+            continue
+        ev_val, rf, rf_lbl, stake = _stake(p_est, odds_betclic, balance_b)
+        if ev_val > settings.ev_cap:
+            continue
+        recos.append({**base,
+            "niche":       label,
+            "description": f"{desc} ({event.event_name})",
+            "p_estimated": round(p_est, 4),
+            "odds_fair":   odds_fair,
+            "odds_betclic": odds_betclic,
+            "value":       round(val, 4),
+            "ev":          round(ev_val, 4),
+            "rf":          rf,
+            "rf_label":    rf_lbl,
+            "stake_recommended": stake,
+        })
 
     # ── Over 2.5 ──
     if event.odds_ou_over and p_over > 0:

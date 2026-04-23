@@ -344,6 +344,7 @@ async def _parse_dom_events(page, sport: str) -> list[dict]:
                 "event_date":  event_time or None,
                 "sport":       sport,
                 "league":      league,
+                "href":        href,           # URL relative pour scrape page-match
                 "odds_home":   odds_home,
                 "odds_draw":   odds_draw,
                 "odds_away":   odds_away,
@@ -358,6 +359,136 @@ async def _parse_dom_events(page, sport: str) -> list[dict]:
             continue
 
     return events
+
+
+async def _close_popups(page) -> None:
+    """Ferme les popups Betclic (EarlyWin, promo, cookies) qui bloquent le DOM."""
+    selectors = [
+        '[role="dialog"] button[aria-label*="Close" i]',
+        '[role="dialog"] button[aria-label*="Fermer" i]',
+        '[class*="modal"] button[class*="close"]',
+        '[class*="modal"] button[aria-label*="Close" i]',
+        '[class*="promo"] button[class*="close"]',
+        'button[data-testid*="close"]',
+        'button:has-text("Non merci")',
+        'button:has-text("Plus tard")',
+        'button:has-text("Fermer")',
+    ]
+    for sel in selectors:
+        try:
+            btn = await page.query_selector(sel)
+            if btn:
+                await btn.click(timeout=2000)
+                await asyncio.sleep(0.5)
+        except Exception:
+            pass
+    # En backup, Escape pour fermer dialog ouvert
+    try:
+        await page.keyboard.press("Escape")
+    except Exception:
+        pass
+
+
+def _extract_market_block(text: str, label: str, n_odds: int = 2,
+                           range_min: float = 1.01, range_max: float = 50.0) -> list[float] | None:
+    """
+    Extrait les `n_odds` premières cotes apparaissant après `label` dans le texte,
+    avec filtre sur la plage de cotes plausible (évite de capter une cote
+    voisine d'un autre marché).
+    """
+    idx = text.find(label)
+    if idx < 0:
+        return None
+    window = text[idx : idx + 400]
+    odds = []
+    for m in re.finditer(r"\b(\d{1,2}[.,]\d{1,2})\b", window):
+        v = float(m.group(1).replace(",", "."))
+        if range_min <= v <= range_max:
+            odds.append(v)
+        if len(odds) >= n_odds:
+            break
+    return odds if len(odds) >= n_odds else None
+
+
+def _extract_yes_no_block(text: str, label: str) -> tuple[float, float] | None:
+    """
+    Pour les marchés Oui/Non (BTTS notamment) : ancre sur 'Oui' puis 'Non'
+    après le label, prend la cote suivant chaque ancre. Plus robuste que
+    'prendre les 2 premières cotes après le label' qui peut capturer la cote
+    d'un autre marché collé.
+    """
+    idx = text.find(label)
+    if idx < 0:
+        return None
+    window = text[idx : idx + 400]
+
+    def _odds_after(anchor: str, w: str) -> float | None:
+        i = w.find(anchor)
+        if i < 0:
+            return None
+        sub = w[i + len(anchor) : i + len(anchor) + 60]
+        m = re.search(r"\b(\d{1,2}[.,]\d{1,2})\b", sub)
+        if not m:
+            return None
+        v = float(m.group(1).replace(",", "."))
+        return v if 1.05 <= v <= 10 else None
+
+    oui = _odds_after("\nOui", window) or _odds_after("Oui\n", window)
+    non = _odds_after("\nNon", window) or _odds_after("Non\n", window)
+    if oui and non:
+        return oui, non
+    return None
+
+
+async def _scrape_match_secondary(page, href: str) -> dict:
+    """
+    Visite la page d'un match et extrait BTTS + Over/Under 2.5.
+    Retourne {odds_btts_yes, odds_btts_no, odds_ou_over, odds_ou_under, ou_threshold}.
+    Best-effort : tous les champs sont None si la section n'est pas trouvée.
+    """
+    out = {
+        "odds_btts_yes": None, "odds_btts_no": None,
+        "odds_ou_over": None,  "odds_ou_under": None, "ou_threshold": 2.5,
+    }
+    if not href:
+        return out
+
+    url = href if href.startswith("http") else f"https://www.betclic.fr{href}"
+    try:
+        await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+        await asyncio.sleep(random.uniform(3.5, 5.5))
+        await _close_popups(page)
+        # Scroll pour activer lazy-load des sections de marchés
+        for _ in range(6):
+            await page.mouse.wheel(0, 700)
+            await asyncio.sleep(0.3)
+        await asyncio.sleep(1)
+
+        text = await page.inner_text("body")
+
+        # ── BTTS Oui/Non (ancrage sur Oui puis Non) ─────
+        btts = _extract_yes_no_block(text, "Les 2 équipes marquent")
+        if not btts:
+            btts = _extract_yes_no_block(text, "Les deux équipes marquent")
+        if btts:
+            out["odds_btts_yes"], out["odds_btts_no"] = btts
+
+        # ── Plus / Moins (Over/Under) buts ────────────────
+        # Betclic format : "Plus de 2,5 buts" / "Moins de 2,5 buts"
+        for thr in (2.5, 1.5, 3.5):
+            label_over = f"Plus de {str(thr).replace('.', ',')} but"
+            label_under = f"Moins de {str(thr).replace('.', ',')} but"
+            ov = _extract_market_block(text, label_over, n_odds=1)
+            un = _extract_market_block(text, label_under, n_odds=1)
+            if ov and un:
+                out["odds_ou_over"]  = ov[0]
+                out["odds_ou_under"] = un[0]
+                out["ou_threshold"]  = thr
+                break
+
+    except Exception as e:
+        print(f"  [warn] page match {url[:60]}: {e}")
+    return out
 
 
 async def _scrape_competition_page(page, url: str) -> list[dict]:
@@ -522,6 +653,21 @@ async def scrape_all(headless: bool = False) -> dict:
             print(f"  Total foot: {len(results['football'])} matchs")
             await asyncio.sleep(random.uniform(4, 8))
 
+            # ── Marchés secondaires : top N matchs foot ───────────────────
+            # Limite à 15 pour rester sous ~2 min de scrape additionnel
+            top_n = 15
+            foot_with_href = [e for e in results["football"] if e.get("href")][:top_n]
+            print(f"Scraping marchés secondaires sur top {len(foot_with_href)} matchs foot...")
+            for i, evt in enumerate(foot_with_href, 1):
+                try:
+                    extra = await _scrape_match_secondary(page, evt["href"])
+                    evt.update(extra)
+                    n_filled = sum(1 for v in extra.values() if v is not None and v != 2.5)
+                    print(f"  [{i}/{len(foot_with_href)}] {evt['event_name'][:32]:32s} -> {n_filled} cotes secondaires")
+                except Exception as e:
+                    print(f"  [{i}/{len(foot_with_href)}] {evt['event_name'][:30]}: ERR {e}")
+                await asyncio.sleep(random.uniform(3, 5))  # anti-ban
+
             print("Scraping tennis...")
             tennis = await _scrape_page_events(page, "tennis")
             if tennis and tennis[0].get("__captcha"):
@@ -565,21 +711,27 @@ def save_to_db(results: dict) -> int:
                     continue
 
                 db.add(OddsHistory(
-                    event_id     = evt["event_id"],
-                    event_name   = evt["event_name"],
-                    event_date   = evt.get("event_date"),
-                    sport        = sport,
-                    league       = evt.get("league", ""),
-                    market_type  = "1X2",
-                    odds_home    = evt.get("odds_home"),
-                    odds_draw    = evt.get("odds_draw"),
-                    odds_away    = evt.get("odds_away"),
-                    odds_ah_home = evt.get("odds_ah_home"),
-                    odds_ah_away = evt.get("odds_ah_away"),
-                    odds_ou_over = evt.get("odds_ou_over"),
-                    odds_ou_under= evt.get("odds_ou_under"),
-                    is_boost     = False,
-                    scraped_at   = scraped_at,
+                    event_id      = evt["event_id"],
+                    event_name    = evt["event_name"],
+                    event_date    = evt.get("event_date"),
+                    sport         = sport,
+                    league        = evt.get("league", ""),
+                    market_type   = "1X2",
+                    odds_home     = evt.get("odds_home"),
+                    odds_draw     = evt.get("odds_draw"),
+                    odds_away     = evt.get("odds_away"),
+                    odds_ah_home  = evt.get("odds_ah_home"),
+                    odds_ah_away  = evt.get("odds_ah_away"),
+                    odds_ou_over  = evt.get("odds_ou_over"),
+                    odds_ou_under = evt.get("odds_ou_under"),
+                    ou_threshold  = evt.get("ou_threshold", 2.5),
+                    odds_btts_yes = evt.get("odds_btts_yes"),
+                    odds_btts_no  = evt.get("odds_btts_no"),
+                    odds_corners_over  = evt.get("odds_corners_over"),
+                    odds_corners_under = evt.get("odds_corners_under"),
+                    corners_threshold  = evt.get("corners_threshold"),
+                    is_boost      = False,
+                    scraped_at    = scraped_at,
                 ))
                 saved += 1
 
