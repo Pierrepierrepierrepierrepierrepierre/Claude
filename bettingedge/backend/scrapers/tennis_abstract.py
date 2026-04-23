@@ -1,116 +1,150 @@
 """
-Scraper Tennis Abstract — ace rates et double fautes par joueur/surface.
+Calibration ace_rate / df_rate par joueur ATP/WTA et par surface.
+
+Source : datasets de Jeff Sackmann (github.com/JeffSackmann/tennis_atp et
+tennis_wta) — open source, format CSV par saison, alimente Tennis Abstract
+en backend. Plus stable que le scraping HTML qui change tout le temps.
+
+Le module garde le nom historique `tennis_abstract` pour ne pas casser
+les imports (main.py / scheduler.py).
+
 Usage : python -m backend.scrapers.tennis_abstract
 """
-import requests
-from bs4 import BeautifulSoup
-import time
-import random
+import io
 import sys
 import os
+import requests
+import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from backend.db.database import SessionLocal
 from backend.db.crud import upsert_model_param, log_scraper
 
-SURFACES = ["hard", "clay", "grass"]
+# Saisons à charger (les + récentes pour rester représentatif)
+SEASONS = [2024, 2023]
 
-# URLs par surface — stats serveur ATP
-URLS = {
-    "hard":  "https://www.tennisabstract.com/reports/atp_hard_serve.html",
-    "clay":  "https://www.tennisabstract.com/reports/atp_clay_serve.html",
-    "grass": "https://www.tennisabstract.com/reports/atp_grass_serve.html",
-}
+# URLs base
+ATP_BASE = "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master"
+WTA_BASE = "https://raw.githubusercontent.com/JeffSackmann/tennis_wta/master"
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-    "Referer": "https://www.tennisabstract.com/",
-}
+# Mapping surface CSV → clé BDD
+SURFACE_MAP = {"Hard": "hard", "Clay": "clay", "Grass": "grass", "Carpet": "hard"}
 
-MIN_MATCHES = 5  # ignorer les joueurs avec trop peu de données
+MIN_SVPT = 100  # nombre minimum de points de service pour calculer un taux fiable
 
 
-def _sleep():
-    time.sleep(random.uniform(3, 7))
+def _player_key(name: str) -> str:
+    return str(name).lower().strip().replace(" ", "_").replace(".", "").replace("-", "_").replace("'", "")
 
 
-def fetch_serve_stats(surface: str) -> list[dict]:
-    url = URLS[surface]
+def _fetch_season(base: str, year: int, prefix: str) -> pd.DataFrame:
+    """Charge un CSV de saison."""
+    url = f"{base}/{prefix}_matches_{year}.csv"
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=20)
-        resp.raise_for_status()
+        r = requests.get(url, timeout=30)
+        r.raise_for_status()
+        df = pd.read_csv(io.StringIO(r.text), low_memory=False)
+        print(f"  {prefix} {year}: {len(df)} matchs")
+        return df
     except Exception as e:
-        print(f"  [ERREUR] {surface}: {e}")
-        return []
+        print(f"  [WARN] {prefix} {year}: {e}")
+        return pd.DataFrame()
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-    table = soup.find("table")
-    if not table:
-        print(f"  [WARN] {surface}: table non trouvée")
-        return []
 
-    rows = []
-    headers_row = [th.get_text(strip=True).lower() for th in table.find("tr").find_all(["th", "td"])]
+def _aggregate_player_surface(df: pd.DataFrame) -> dict:
+    """
+    Pour chaque joueur (winner+loser confondus), agrège par surface :
+      ace_rate = sum(aces) / sum(svpt)
+      df_rate  = sum(df)   / sum(svpt)
+    Retourne {player_key: {surface: {ace_rate, df_rate, svpt}}}
+    """
+    if df.empty or "surface" not in df.columns:
+        return {}
 
-    def col(name: str) -> int:
-        for i, h in enumerate(headers_row):
-            if name in h:
-                return i
-        return -1
+    cols_needed = {"winner_name", "loser_name", "surface", "w_ace", "w_df", "w_svpt", "l_ace", "l_df", "l_svpt"}
+    if not cols_needed.issubset(df.columns):
+        return {}
 
-    idx_player = col("player")
-    idx_matches = col("match")
-    idx_aces = col("ace")
-    idx_df = col("df")
-    idx_svpt = col("svpt")
+    df = df.dropna(subset=["surface", "w_svpt", "l_svpt"]).copy()
+    df["surface_key"] = df["surface"].map(SURFACE_MAP)
+    df = df.dropna(subset=["surface_key"])
 
-    if idx_player < 0:
-        return []
+    # Long format : une ligne par (joueur, match)
+    winners = df.rename(columns={
+        "winner_name": "player", "w_ace": "ace", "w_df": "df", "w_svpt": "svpt",
+    })[["player", "surface_key", "ace", "df", "svpt"]]
+    losers = df.rename(columns={
+        "loser_name": "player",  "l_ace": "ace", "l_df": "df", "l_svpt": "svpt",
+    })[["player", "surface_key", "ace", "df", "svpt"]]
+    long = pd.concat([winners, losers], ignore_index=True).dropna(subset=["ace", "df", "svpt"])
 
-    for tr in table.find_all("tr")[1:]:
-        cells = tr.find_all(["td", "th"])
-        try:
-            player  = cells[idx_player].get_text(strip=True) if idx_player >= 0 else ""
-            matches = int(cells[idx_matches].get_text(strip=True)) if idx_matches >= 0 else 0
-            if not player or matches < MIN_MATCHES:
-                continue
+    grouped = long.groupby(["player", "surface_key"]).agg(
+        ace=("ace", "sum"), df=("df", "sum"), svpt=("svpt", "sum")
+    ).reset_index()
+    grouped = grouped[grouped["svpt"] >= MIN_SVPT]
 
-            ace_pct = float(cells[idx_aces].get_text(strip=True).replace("%", "")) / 100 if idx_aces >= 0 else 0.06
-            df_pct  = float(cells[idx_df].get_text(strip=True).replace("%", "")) / 100 if idx_df >= 0 else 0.03
-
-            rows.append({"player": player, "surface": surface, "ace_rate": ace_pct, "df_rate": df_pct, "matches": matches})
-        except Exception:
-            continue
-
-    print(f"  {surface}: {len(rows)} joueurs")
-    return rows
+    out: dict = {}
+    for row in grouped.itertuples():
+        key = _player_key(row.player)
+        out.setdefault(key, {})[row.surface_key] = {
+            "ace_rate": round(row.ace / row.svpt, 4),
+            "df_rate":  round(row.df  / row.svpt, 4),
+            "svpt":     int(row.svpt),
+        }
+    return out
 
 
 def scrape_all() -> bool:
     db = SessionLocal()
-    total = 0
+    total_atp = total_wta = 0
 
     try:
-        for surface in SURFACES:
-            print(f"Tennis Abstract — {surface}...")
-            stats = fetch_serve_stats(surface)
+        # ── ATP ──────────────────────────────────────────────────────────
+        atp_dfs = [_fetch_season(ATP_BASE, y, "atp") for y in SEASONS]
+        atp_full = pd.concat([d for d in atp_dfs if not d.empty], ignore_index=True)
+        atp_stats = _aggregate_player_surface(atp_full)
+        avg_ace = {"hard": [], "clay": [], "grass": []}
+        avg_df  = {"hard": [], "clay": [], "grass": []}
 
-            for s in stats:
-                key = s["player"].lower().replace(" ", "_").replace(".", "").replace("-", "_")
-                upsert_model_param(db, "poisson_aces", f"ace_rate_{key}_{surface}", s["ace_rate"])
-                upsert_model_param(db, "poisson_df",   f"df_rate_{key}_{surface}",  s["df_rate"])
-                total += 1
+        for player, surfs in atp_stats.items():
+            for surface, st in surfs.items():
+                upsert_model_param(db, "tennis", f"ace_rate_{player}_{surface}", st["ace_rate"])
+                upsert_model_param(db, "tennis", f"df_rate_{player}_{surface}",  st["df_rate"])
+                avg_ace[surface].append(st["ace_rate"])
+                avg_df[surface].append(st["df_rate"])
+                total_atp += 1
 
-            _sleep()
+        # ── WTA ──────────────────────────────────────────────────────────
+        wta_dfs = [_fetch_season(WTA_BASE, y, "wta") for y in SEASONS]
+        wta_full = pd.concat([d for d in wta_dfs if not d.empty], ignore_index=True)
+        wta_stats = _aggregate_player_surface(wta_full)
+        for player, surfs in wta_stats.items():
+            for surface, st in surfs.items():
+                upsert_model_param(db, "tennis", f"ace_rate_{player}_{surface}", st["ace_rate"])
+                upsert_model_param(db, "tennis", f"df_rate_{player}_{surface}",  st["df_rate"])
+                avg_ace[surface].append(st["ace_rate"])
+                avg_df[surface].append(st["df_rate"])
+                total_wta += 1
 
-        log_scraper(db, "tennis_abstract", "ok", f"{total} paramètres joueur/surface")
-        print(f"\nTennis Abstract OK — {total} paramètres sauvegardés")
+        # ── Moyennes par surface (fallback joueurs inconnus) ────────────
+        for surface in ("hard", "clay", "grass"):
+            if avg_ace[surface]:
+                upsert_model_param(db, "tennis", f"ace_rate_avg_{surface}",
+                                   round(sum(avg_ace[surface]) / len(avg_ace[surface]), 4))
+            if avg_df[surface]:
+                upsert_model_param(db, "tennis", f"df_rate_avg_{surface}",
+                                   round(sum(avg_df[surface])  / len(avg_df[surface]),  4))
+
+        msg = f"{total_atp} ATP + {total_wta} WTA = {total_atp + total_wta} (joueur,surface) calibrés"
+        log_scraper(db, "tennis_abstract", "ok", msg)
+        print(f"\nOK -- {msg}")
         return True
 
     except Exception as e:
         log_scraper(db, "tennis_abstract", "error", str(e))
-        print(f"ERREUR: {e}")
+        print(f"ERREUR : {e}")
+        import traceback; traceback.print_exc()
         return False
     finally:
         db.close()
