@@ -242,13 +242,18 @@ def run_backtest(
             if o_h: candidates.append(("1x2_home", p_h, o_h, home_won))
             if o_d: candidates.append(("1x2_draw", p_d, o_d, draw))
             if o_a: candidates.append(("1x2_away", p_a, o_a, away_won))
-            # O/U 2.5 (si dispo)
+            # O/U 2.5 (si dispo) — même nommage que le pipeline live
             if o_over and o_under:
-                candidates.append(("over25",  p_over,        o_over,  over25))
-                candidates.append(("under25", 1.0 - p_over,  o_under, not over25))
+                candidates.append(("over_2.5",  p_over,       o_over,  over25))
+                candidates.append(("under_2.5", 1.0 - p_over, o_under, not over25))
 
             for niche, p_est, odds, won in candidates:
                 if p_est <= 0 or odds <= 1:
+                    continue
+                # Mêmes filtres que le pipeline live (cohérence backtest ↔ prod)
+                if any(niche.startswith(p) for p in (settings.disabled_niches or [])):
+                    continue
+                if f"{niche}:{league}" in (settings.blacklist_combos or []):
                     continue
                 ev = _ev(p_est, odds)
                 if ev <= ev_threshold:

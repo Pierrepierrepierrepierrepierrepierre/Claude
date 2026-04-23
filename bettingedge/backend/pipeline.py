@@ -29,6 +29,30 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _league_key(betclic_league: str) -> str:
+    """Mappe un nom de ligue Betclic vers la clé utilisée dans la blacklist."""
+    n = (betclic_league or "").lower()
+    if "premier league" in n or "england" in n or "anglais" in n: return "premier_league"
+    if "ligue 1" in n: return "ligue1"
+    if "ligue 2" in n: return "ligue2"
+    if "liga" in n and "europa" not in n: return "liga"
+    if "serie a" in n: return "serie_a"
+    if "bundes" in n: return "bundesliga"
+    return ""
+
+
+def _is_blacklisted(niche_outcome: str, league_key: str) -> bool:
+    """Vérifie si la combo niche × ligue est dans la blacklist (backtest insight)."""
+    if not league_key:
+        return False
+    return f"{niche_outcome}:{league_key}" in (settings.blacklist_combos or [])
+
+
+def _is_disabled_niche(niche: str) -> bool:
+    """Niches bannies globalement (ex: 'under_2.5' → DC sous-prédit les buts)."""
+    return any(niche.startswith(p) for p in (settings.disabled_niches or []))
+
+
 def _stake(p, odds, portfolio_balance, n_simi=0, brier=0.20, clv=0.0):
     ev_val = compute_ev(p, odds)
     rf = compute_rf(n_simi, ev_val, p, odds, brier, clv)
@@ -102,33 +126,39 @@ def analyze_football(event: OddsHistory, params: dict, balance_b: float, db: Ses
         "generated_at": _now(),
     }
 
+    league_key = _league_key(event.league)
+
     # ── 1X2 : trouver la meilleure issue si value+ ──
-    for p_est, odds_betclic, outcome_name, outcome_idx in [
-        (p_home, event.odds_home, "Victoire domicile", 0),
-        (p_draw, event.odds_draw, "Nul",               1),
-        (p_away, event.odds_away, "Victoire extérieur", 2),
+    for p_est, odds_betclic, outcome_name, outcome_label in [
+        (p_home, event.odds_home, "Victoire domicile",   "1x2_home"),
+        (p_draw, event.odds_draw, "Nul",                 "1x2_draw"),
+        (p_away, event.odds_away, "Victoire extérieur",  "1x2_away"),
     ]:
         if not odds_betclic or p_est <= 0:
             continue
+        # Blacklist combo niche × ligue (perdants identifiés au backtest)
+        if _is_blacklisted(outcome_label, league_key):
+            continue
+
         odds_fair = round(1 / p_est, 3)
         val = compute_value(odds_betclic, odds_fair)
 
-        # Bug 2 mitigation : DC simplifié sur-estime les nuls → seuil EV plus haut
+        # DC simplifié sur-estime les nuls → seuil EV plus haut pour Nul
         threshold = settings.ev_threshold_b
-        if outcome_idx == 1:
+        if outcome_label == "1x2_draw":
             threshold += settings.ev_threshold_draw_extra
 
         if val <= threshold:
             continue
 
         ev_val_pre, _, _, _ = _stake(p_est, odds_betclic, balance_b)
-        # Bug 3 mitigation : EV anormal (>50%) → modèle suspect, on skippe
+        # EV anormal (>50%) → modèle suspect, on skippe
         if ev_val_pre > settings.ev_cap:
             continue
 
         ev_val, rf, rf_lbl, stake = _stake(p_est, odds_betclic, balance_b)
         recos.append({**base,
-            "niche":       "1x2",
+            "niche":       outcome_label,
             "description": f"{outcome_name} ({event.event_name})",
             "p_estimated": round(p_est, 4),
             "odds_fair":   odds_fair,
@@ -174,6 +204,11 @@ def analyze_football(event: OddsHistory, params: dict, balance_b: float, db: Ses
         (1.0 - p_over,  event.odds_ou_under, f"Moins de {thr_label} buts", f"under_{ou_thr}"),
     ]:
         if not odds_betclic or p_est <= 0:
+            continue
+        # Niche désactivée globalement (under_ : DC sous-prédit, ROI -7% en backtest)
+        if _is_disabled_niche(niche):
+            continue
+        if _is_blacklisted(niche, league_key):
             continue
         odds_fair = round(1 / p_est, 3)
         val = compute_value(odds_betclic, odds_fair)
