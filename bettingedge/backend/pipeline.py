@@ -85,7 +85,9 @@ def analyze_football(event: OddsHistory, params: dict, balance_b: float, db: Ses
     p_draw = prob_draw(matrix)
     p_away = prob_away_win(matrix)
     p_btts = prob_btts(matrix)
-    p_over = prob_over(matrix, 2.5)
+    # Seuil O/U dynamique (Betclic peut renvoyer 1.5/2.5/3.5 selon le match)
+    ou_thr = event.ou_threshold or 2.5
+    p_over = prob_over(matrix, ou_thr)
 
     base = {
         "event_id":   event.event_id,
@@ -165,25 +167,33 @@ def analyze_football(event: OddsHistory, params: dict, balance_b: float, db: Ses
             "stake_recommended": stake,
         })
 
-    # ── Over 2.5 ──
-    if event.odds_ou_over and p_over > 0:
-        odds_fair_over = round(1 / p_over, 3)
-        val = compute_value(event.odds_ou_over, odds_fair_over)
-        if val > settings.ev_threshold_b:
-            ev_val, rf, rf_lbl, stake = _stake(p_over, event.odds_ou_over, balance_b)
-            if ev_val <= settings.ev_cap:
-                recos.append({**base,
-                    "niche":       "over25",
-                    "description": f"Plus de 2.5 buts ({event.event_name})",
-                    "p_estimated": round(p_over, 4),
-                    "odds_fair":   odds_fair_over,
-                    "odds_betclic": event.odds_ou_over,
-                    "value":       round(val, 4),
-                    "ev":          round(ev_val, 4),
-                    "rf":          rf,
-                    "rf_label":    rf_lbl,
-                    "stake_recommended": stake,
-                })
+    # ── Over / Under buts (seuil dynamique 1.5 / 2.5 / 3.5) ──
+    thr_label = str(ou_thr).replace(".", ",")
+    for p_est, odds_betclic, desc, niche in [
+        (p_over,        event.odds_ou_over,  f"Plus de {thr_label} buts",  f"over_{ou_thr}"),
+        (1.0 - p_over,  event.odds_ou_under, f"Moins de {thr_label} buts", f"under_{ou_thr}"),
+    ]:
+        if not odds_betclic or p_est <= 0:
+            continue
+        odds_fair = round(1 / p_est, 3)
+        val = compute_value(odds_betclic, odds_fair)
+        if val <= settings.ev_threshold_b:
+            continue
+        ev_val, rf, rf_lbl, stake = _stake(p_est, odds_betclic, balance_b)
+        if ev_val > settings.ev_cap:
+            continue
+        recos.append({**base,
+            "niche":       niche,
+            "description": f"{desc} ({event.event_name})",
+            "p_estimated": round(p_est, 4),
+            "odds_fair":   odds_fair,
+            "odds_betclic": odds_betclic,
+            "value":       round(val, 4),
+            "ev":          round(ev_val, 4),
+            "rf":          rf,
+            "rf_label":    rf_lbl,
+            "stake_recommended": stake,
+        })
 
     # ── Boost Strategy A ──
     if event.is_boost and event.boost_odds:
@@ -423,10 +433,18 @@ def run_pipeline(
             return None
         return None
 
-    # Événements scrapés récemment ET dont event_date est dans la fenêtre
+    # Événements scrapés récemment, dédupliqués par event_id (on garde le
+    # snapshot LE PLUS RÉCENT par match — sinon un même match scrapé 3 fois
+    # produit 3 recos identiques) ET dont event_date est dans la fenêtre.
     events_q = db.query(OddsHistory).filter(OddsHistory.scraped_at >= scrape_cutoff)
-    events = []
+    by_eid: dict[str, OddsHistory] = {}
     for e in events_q.all():
+        prev = by_eid.get(e.event_id)
+        if prev is None or (e.scraped_at or "") > (prev.scraped_at or ""):
+            by_eid[e.event_id] = e
+
+    events = []
+    for e in by_eid.values():
         if not e.event_date:
             events.append(e); continue
         ed = _parse_event_dt(e.event_date)

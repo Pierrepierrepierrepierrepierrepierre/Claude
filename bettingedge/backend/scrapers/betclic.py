@@ -392,14 +392,16 @@ async def _close_popups(page) -> None:
 def _extract_market_block(text: str, label: str, n_odds: int = 2,
                            range_min: float = 1.01, range_max: float = 50.0) -> list[float] | None:
     """
-    Extrait les `n_odds` premières cotes apparaissant après `label` dans le texte,
-    avec filtre sur la plage de cotes plausible (évite de capter une cote
-    voisine d'un autre marché).
+    Extrait les `n_odds` premières cotes apparaissant APRÈS `label` dans le texte,
+    avec filtre sur la plage de cotes plausible. La recherche commence après le
+    label lui-même pour éviter qu'un nombre dans le label (ex: '1,5' dans
+    'Plus de 1,5 buts') soit pris comme cote.
     """
     idx = text.find(label)
     if idx < 0:
         return None
-    window = text[idx : idx + 400]
+    start = idx + len(label)
+    window = text[start : start + 400]
     odds = []
     for m in re.finditer(r"\b(\d{1,2}[.,]\d{1,2})\b", window):
         v = float(m.group(1).replace(",", "."))
@@ -473,18 +475,53 @@ async def _scrape_match_secondary(page, href: str) -> dict:
         if btts:
             out["odds_btts_yes"], out["odds_btts_no"] = btts
 
-        # ── Plus / Moins (Over/Under) buts ────────────────
-        # Betclic format : "Plus de 2,5 buts" / "Moins de 2,5 buts"
+        # ── Cliquer sur l'onglet "Buts" pour révéler Over/Under ─────
+        # Si Over/Under est déjà dans le texte (rare), on skip le clic
+        if "Plus de 2,5" not in text and "Plus de 1,5" not in text:
+            # Sur Betclic les onglets sont des <div class="tab_item">Buts</div>
+            # On exclut "Buteurs" / "Buts à mi-temps" qui contiennent aussi "But"
+            tab_selectors = [
+                'div.tab_item:text-is("Buts")',
+                'div[class*="tab"]:text-is("Buts")',
+                ':text-is("Buts"):not(:text-matches("Buteurs"))',
+            ]
+            for sel in tab_selectors:
+                try:
+                    btn = await page.query_selector(sel)
+                    if btn:
+                        await btn.click(timeout=2000)
+                        await asyncio.sleep(random.uniform(2, 3))
+                        # Scroll après clic pour activer lazy
+                        for _ in range(4):
+                            await page.mouse.wheel(0, 700)
+                            await asyncio.sleep(0.25)
+                        await asyncio.sleep(1)
+                        break
+                except Exception:
+                    continue
+            text = await page.inner_text("body")
+
+        # ── + / - de N buts ─ format Betclic : "+ de 2,5" suivi de la cote
+        # On cherche la section "Nombre total de buts" pour restreindre la zone,
+        # puis on essaie 2,5 puis 1,5 puis 3,5. Validation par vig (4-15%).
+        section_idx = text.find("Nombre total de buts")
+        if section_idx < 0:
+            section_idx = text.find("Total de buts")
+        section_text = text[section_idx : section_idx + 600] if section_idx >= 0 else text
+
         for thr in (2.5, 1.5, 3.5):
-            label_over = f"Plus de {str(thr).replace('.', ',')} but"
-            label_under = f"Moins de {str(thr).replace('.', ',')} but"
-            ov = _extract_market_block(text, label_over, n_odds=1)
-            un = _extract_market_block(text, label_under, n_odds=1)
+            thr_str = str(thr).replace(".", ",")
+            label_over  = f"+ de {thr_str}"
+            label_under = f"- de {thr_str}"
+            ov = _extract_market_block(section_text, label_over,  n_odds=1, range_min=1.02, range_max=20)
+            un = _extract_market_block(section_text, label_under, n_odds=1, range_min=1.02, range_max=20)
             if ov and un:
-                out["odds_ou_over"]  = ov[0]
-                out["odds_ou_under"] = un[0]
-                out["ou_threshold"]  = thr
-                break
+                vig = (1.0 / ov[0] + 1.0 / un[0]) - 1.0
+                if -0.02 <= vig <= 0.15:
+                    out["odds_ou_over"]  = ov[0]
+                    out["odds_ou_under"] = un[0]
+                    out["ou_threshold"]  = thr
+                    break
 
     except Exception as e:
         print(f"  [warn] page match {url[:60]}: {e}")

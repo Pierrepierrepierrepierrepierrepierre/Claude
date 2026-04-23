@@ -121,10 +121,26 @@
 - Champs OU/AH/BTTS dans le schéma OddsHistory mais 0 événement les remplit (parser DOM ne lit que la page de listing, pas la page match)
 - → 100% des 20 recos sont sur "1X2" (foot) ou "vainqueur" (tennis)
 
+**Phase 1 — Diversification niches :** ✅ partiellement (2026-04-23 soir)
+- Tennis Abstract (Sackmann GitHub) : 1434 calibrations joueur×surface (742 ATP + 692 WTA, 2 saisons 2024+2023)
+- Betclic page-match scraper : visite top 15 matchs foot avec popup handler + onglets, extrait BTTS Oui/Non + Plus/Moins buts
+- Niches actives dans le pipeline : `1x2`, `tennis_winner`, `btts_yes`, `btts_no`, `over_2.5/1.5/3.5`, `under_2.5/1.5/3.5`
+- Validation par vig (4-15%) sur O/U pour rejeter les cotes voisines mal capturées
+- Pipeline.run_pipeline : dédup events par event_id (le plus récent), ou_threshold dynamique
+- Auto-scrape Betclic au démarrage de l'app si dernier OK > 60 min (env BETTINGEDGE_NO_AUTOSCRAPE pour désactiver)
+- Bouton manuel '🔄 Rafraîchir cotes Betclic' sur le dashboard
+- Reste à faire : corners (clic onglet Corners) et cartons (besoin stats arbitres)
+
+**UX dashboard :**
+- Section 'Recommandations du jour' en tête, table top-20 avec sport icon, value/EV/RF colorisés, variation cotes, bouton Parier
+- 'Parier' route vers /simulation pré-rempli avec event_name + outcome → auto-CLV au resolve
+- Section 'Diagnostic & maintenance scrapers' collapsée par défaut, fraîcheur colorée par scraper
+- Bug fixes : initTooltips défini, API helper sans double /api/api, scrapers logs filtrés (pas d'alerte si OK plus récent)
+
 **Prochaine étape (au choix) :**
-A. Étendre Betclic aux marchés secondaires (corners, BTTS, cartons, aces) — 1-2j, gros gain en diversité
-B. Epic 7 (Moteur d'apprentissage : Brier glissant, Bayesian update, error analysis)
-C. Wirer la Stratégie B niches dans le pipeline avec ce qu'on a déjà (BTTS via DC sans cote Betclic = juste prédiction sans value calc)
+A. Phase 1 reste : corners (page-match onglet Corners) + cartons (data stats arbitres à trouver)
+B. Phase 2 — Epic 7 Moteur d'apprentissage (Brier glissant, Bayesian update, error analysis, niches dégradées)
+C. Phase 3 — Documentation + tooltips (Epic 8)
 
 **Ordre des Epics prévu :**
 1. Epic 0 — Setup projet (structure, BDD, FastAPI base)
