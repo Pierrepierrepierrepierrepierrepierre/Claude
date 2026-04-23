@@ -63,6 +63,14 @@ class OddsHistory(Base):
     odds_ah_away = Column(Float)   # AH : extérieur
     odds_ou_over = Column(Float)   # OU : over
     odds_ou_under = Column(Float)  # OU : under
+    ou_threshold  = Column(Float, default=2.5)  # seuil O/U buts
+
+    # Marchés secondaires (page match)
+    odds_btts_yes  = Column(Float)  # Les deux équipes marquent : Oui
+    odds_btts_no   = Column(Float)  # Les deux équipes marquent : Non
+    odds_corners_over  = Column(Float)
+    odds_corners_under = Column(Float)
+    corners_threshold  = Column(Float)  # ex 9.5
 
     # Boost Betclic
     is_boost     = Column(Boolean, default=False)
