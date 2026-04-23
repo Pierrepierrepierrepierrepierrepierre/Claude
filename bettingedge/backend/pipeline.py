@@ -343,42 +343,85 @@ def analyze_tennis(event: OddsHistory, params: dict, balance_b: float, db: Sessi
                         "stake_recommended": stake,
                     })
 
-    # ── Aces Over/Under ── (si cote O/U disponible)
-    if event.odds_ou_over and event.odds_ou_under:
+    # ── Aces Over/Under (page-match Betclic, seuil dynamique) ──────────────
+    # Betclic expose souvent que le côté Over → on génère la reco quand même.
+    if event.odds_aces_over and event.aces_threshold:
         e_games = expected_service_games(hold_a, hold_b, best_of=3)
         lam_a = lambda_aces(rate_a, e_games)
         lam_b = lambda_aces(rate_b, e_games)
         lam_total = lam_a + lam_b
+        threshold = event.aces_threshold
 
-        # Seuil : on essaie 20.5 et 22.5
-        for threshold in [20.5, 22.5]:
-            p_over_aces = predict_over(lam_total, threshold)
-            p_under_aces = 1 - p_over_aces
+        p_over_aces  = predict_over(lam_total, threshold)
+        p_under_aces = 1 - p_over_aces
+        thr_label = str(threshold).replace(".", ",")
 
-            if p_over_aces <= 0.01 or p_under_aces <= 0.01:
+        outcomes = [(p_over_aces, event.odds_aces_over, f"Aces : + de {thr_label}", f"aces_over_{threshold}")]
+        if event.odds_aces_under:  # Under uniquement si dispo
+            outcomes.append((p_under_aces, event.odds_aces_under, f"Aces : - de {thr_label}", f"aces_under_{threshold}"))
+
+        for p_est, odds_betclic, desc, niche in outcomes:
+            if p_est <= 0.01:
                 continue
+            odds_fair = round(1 / p_est, 3)
+            val = compute_value(odds_betclic, odds_fair)
+            if val <= settings.ev_threshold_b:
+                continue
+            ev_val, rf, rf_lbl, stake = _stake(p_est, odds_betclic, balance_b)
+            if ev_val > settings.ev_cap:
+                continue
+            recos.append({**base,
+                "niche":       niche,
+                "description": f"{desc} ({event.event_name})",
+                "p_estimated": round(p_est, 4),
+                "odds_fair":   odds_fair,
+                "odds_betclic": odds_betclic,
+                "value":       round(val, 4),
+                "ev":          round(ev_val, 4),
+                "rf":          rf,
+                "rf_label":    rf_lbl,
+                "stake_recommended": stake,
+            })
 
-            for p_est, odds_betclic, desc in [
-                (p_over_aces,  event.odds_ou_over,  f"Aces > {threshold}"),
-                (p_under_aces, event.odds_ou_under, f"Aces < {threshold}"),
-            ]:
-                odds_fair = round(1 / p_est, 3)
-                val = compute_value(odds_betclic, odds_fair)
-                if val > settings.ev_threshold_b:
-                    ev_val, rf, rf_lbl, stake = _stake(p_est, odds_betclic, balance_b)
-                    if ev_val <= settings.ev_cap:
-                        recos.append({**base,
-                            "niche":       f"aces_{threshold}",
-                            "description": f"{desc} ({event.event_name})",
-                            "p_estimated": round(p_est, 4),
-                            "odds_fair":   odds_fair,
-                            "odds_betclic": odds_betclic,
-                            "value":       round(val, 4),
-                            "ev":          round(ev_val, 4),
-                            "rf":          rf,
-                            "rf_label":    rf_lbl,
-                            "stake_recommended": stake,
-                        })
+    # ── Tie-break dans le match (Oui/Non) ─────────────────────────────────
+    if event.odds_tiebreak_yes and event.odds_tiebreak_no:
+        # P(au moins 1 tie-break) approximation via prob_set : un set
+        # se termine 6-6 (donc TB) avec probabilité ≈ p_set × q_set × C(12,6)/2
+        # On utilise une approche plus simple : 1 - P(aucun set 6-6 sur ~2.5 sets)
+        from math import comb
+        p_set = prob_set(hold_a, hold_b)
+        q_set = 1 - p_set
+        # P(set serré → 6-6) — approximation empirique sur l'écart de force
+        p_66 = min(0.18, 4 * p_set * q_set * 0.13)  # ~13% en moyenne ATP, plus faible si match déséquilibré
+        e_sets = 2.5  # BO3 moyen
+        p_no_tb = (1 - p_66) ** e_sets
+        p_tb = round(1 - p_no_tb, 4)
+
+        for p_est, odds_betclic, desc, niche in [
+            (p_tb,        event.odds_tiebreak_yes, "Tie-break dans le match : Oui", "tiebreak_yes"),
+            (1.0 - p_tb,  event.odds_tiebreak_no,  "Tie-break dans le match : Non", "tiebreak_no"),
+        ]:
+            if p_est <= 0.01:
+                continue
+            odds_fair = round(1 / p_est, 3)
+            val = compute_value(odds_betclic, odds_fair)
+            if val <= settings.ev_threshold_b:
+                continue
+            ev_val, rf, rf_lbl, stake = _stake(p_est, odds_betclic, balance_b)
+            if ev_val > settings.ev_cap:
+                continue
+            recos.append({**base,
+                "niche":       niche,
+                "description": f"{desc} ({event.event_name})",
+                "p_estimated": round(p_est, 4),
+                "odds_fair":   odds_fair,
+                "odds_betclic": odds_betclic,
+                "value":       round(val, 4),
+                "ev":          round(ev_val, 4),
+                "rf":          rf,
+                "rf_label":    rf_lbl,
+                "stake_recommended": stake,
+            })
 
     return recos
 

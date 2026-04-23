@@ -528,6 +528,83 @@ async def _scrape_match_secondary(page, href: str) -> dict:
     return out
 
 
+async def _click_tab(page, *texts: str) -> bool:
+    """Clique le premier onglet trouvé contenant l'un des textes (cas insensible)."""
+    for txt in texts:
+        for sel in (
+            f'div.tab_item:has-text("{txt}")',
+            f'div[class*="tab_item"]:has-text("{txt}")',
+        ):
+            try:
+                el = await page.query_selector(sel)
+                if el:
+                    await el.click(timeout=2500)
+                    await asyncio.sleep(random.uniform(2, 3))
+                    for _ in range(4):
+                        await page.mouse.wheel(0, 700); await asyncio.sleep(0.25)
+                    return True
+            except Exception:
+                continue
+    return False
+
+
+async def _scrape_match_secondary_tennis(page, href: str) -> dict:
+    """
+    Visite une page match tennis et extrait :
+      - Aces total match (Over/Under N) → onglet 'Points & Service'
+      - Tie-break dans le match (Oui/Non) → onglet 'Jeux'
+    """
+    out = {
+        "odds_aces_over": None, "odds_aces_under": None, "aces_threshold": None,
+        "odds_tiebreak_yes": None, "odds_tiebreak_no": None,
+    }
+    if not href:
+        return out
+    url = href if href.startswith("http") else f"https://www.betclic.fr{href}"
+
+    try:
+        await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+        await asyncio.sleep(random.uniform(3.5, 5.5))
+        await _close_popups(page)
+
+        # ── Aces : onglet Points & Service ────────────────────────────
+        # Note : Betclic n'expose souvent QUE le côté Over (+ de X) avec une
+        # seule cote, pas le Under. On stocke ce qu'on trouve.
+        if await _click_tab(page, "Service", "Points"):
+            text = await page.inner_text("body")
+            section_idx = text.find("Nombre total d'aces dans le match")
+            if section_idx < 0:
+                section_idx = text.find("Nombre total d'aces")
+            section_text = text[section_idx : section_idx + 400] if section_idx >= 0 else ""
+            for thr in (12.5, 14.5, 16.5, 18.5, 20.5, 22.5, 10.5, 8.5):
+                thr_str = str(thr).replace(".", ",")
+                ov = _extract_market_block(section_text, f"+ de {thr_str}", n_odds=1, range_min=1.05, range_max=15)
+                if ov:
+                    out["odds_aces_over"] = ov[0]
+                    out["aces_threshold"] = thr
+                    # Tente de récupérer l'Under si dispo
+                    un = _extract_market_block(section_text, f"- de {thr_str}", n_odds=1, range_min=1.05, range_max=15)
+                    if un:
+                        out["odds_aces_under"] = un[0]
+                    break
+
+        # ── Tie-break : onglet Jeux ──────────────────────────────────
+        if await _click_tab(page, "Jeux"):
+            text = await page.inner_text("body")
+            tb = _extract_yes_no_block(text, "Tie-Break dans le match")
+            if not tb:
+                tb = _extract_yes_no_block(text, "Tie-break dans le match")
+            if not tb:
+                # Variante ancrage générique sur "Tie-Break"
+                tb = _extract_yes_no_block(text, "Tie-Break")
+            if tb:
+                out["odds_tiebreak_yes"], out["odds_tiebreak_no"] = tb
+
+    except Exception as e:
+        print(f"  [warn] page match tennis {url[:60]}: {e}")
+    return out
+
+
 async def _scrape_competition_page(page, url: str) -> list[dict]:
     """Scrape une page de compétition spécifique (Ligue 1, PL, etc.)."""
     try:
@@ -713,6 +790,19 @@ async def scrape_all(headless: bool = False) -> dict:
                 results["tennis"] = [e for e in tennis if not e.get("__captcha")]
             print(f"  {len(results['tennis'])} matchs tennis")
 
+            # ── Marchés secondaires tennis (top 10 matchs) ──────────────
+            tennis_with_href = [e for e in results["tennis"] if e.get("href")][:10]
+            print(f"Scraping marchés secondaires tennis sur top {len(tennis_with_href)} matchs...")
+            for i, evt in enumerate(tennis_with_href, 1):
+                try:
+                    extra = await _scrape_match_secondary_tennis(page, evt["href"])
+                    evt.update(extra)
+                    n_filled = sum(1 for v in extra.values() if v is not None)
+                    print(f"  [{i}/{len(tennis_with_href)}] {evt['event_name'][:32]:32s} -> {n_filled} cotes secondaires")
+                except Exception as e:
+                    print(f"  [{i}/{len(tennis_with_href)}] {evt['event_name'][:30]}: ERR {e}")
+                await asyncio.sleep(random.uniform(3, 5))
+
             await asyncio.sleep(random.uniform(4, 8))
 
             print("Scraping boosts...")
@@ -767,6 +857,11 @@ def save_to_db(results: dict) -> int:
                     odds_corners_over  = evt.get("odds_corners_over"),
                     odds_corners_under = evt.get("odds_corners_under"),
                     corners_threshold  = evt.get("corners_threshold"),
+                    odds_aces_over     = evt.get("odds_aces_over"),
+                    odds_aces_under    = evt.get("odds_aces_under"),
+                    aces_threshold     = evt.get("aces_threshold"),
+                    odds_tiebreak_yes  = evt.get("odds_tiebreak_yes"),
+                    odds_tiebreak_no   = evt.get("odds_tiebreak_no"),
                     is_boost      = False,
                     scraped_at    = scraped_at,
                 ))

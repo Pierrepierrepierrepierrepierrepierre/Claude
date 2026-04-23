@@ -65,12 +65,19 @@ class OddsHistory(Base):
     odds_ou_under = Column(Float)  # OU : under
     ou_threshold  = Column(Float, default=2.5)  # seuil O/U buts
 
-    # Marchés secondaires (page match)
+    # Marchés secondaires foot (page match)
     odds_btts_yes  = Column(Float)  # Les deux équipes marquent : Oui
     odds_btts_no   = Column(Float)  # Les deux équipes marquent : Non
     odds_corners_over  = Column(Float)
     odds_corners_under = Column(Float)
     corners_threshold  = Column(Float)  # ex 9.5
+
+    # Marchés secondaires tennis (page match)
+    odds_aces_over     = Column(Float)
+    odds_aces_under    = Column(Float)
+    aces_threshold     = Column(Float)  # ex 12.5
+    odds_tiebreak_yes  = Column(Float)  # Au moins 1 tie-break dans le match : Oui
+    odds_tiebreak_no   = Column(Float)
 
     # Boost Betclic
     is_boost     = Column(Boolean, default=False)
