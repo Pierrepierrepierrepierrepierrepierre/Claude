@@ -234,6 +234,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 
 /* Alerts extended */
 .alert-warn { background: rgba(241,196,15,0.1); border: 1px solid var(--yellow); color: var(--yellow); }
+.alert-ok   { background: rgba(46,204,113,0.1); border: 1px solid var(--green);  color: var(--green); }
 .hidden { display: none !important; }
 
 /* Cards */

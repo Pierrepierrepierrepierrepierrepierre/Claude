@@ -21,8 +21,19 @@
   <main class="content">
     <div class="page-header">
       <h1>Stratégie C — CLV Tracker</h1>
-      <p class="subtitle">Closing Line Value — mesure de la qualité du modèle</p>
+      <p class="subtitle">
+        Closing Line Value — mesure de la qualité du modèle.
+        Auto-résolution des paris terminés activée au démarrage de l'app.
+      </p>
+      <div class="filter-bar">
+        <button class="btn-primary btn-sm" onclick="autoResolve()" id="bt-resolve"
+                title="Pour chaque pari open dont le match est terminé, fetch le score Pinnacle et calcule le CLV automatiquement">
+          🔄 Résoudre les paris terminés
+        </button>
+      </div>
     </div>
+
+    <div id="resolve-result" class="alert hidden" style="margin:12px 0"></div>
 
     <!-- KPIs CLV -->
     <div class="kpi-grid" id="kpi-grid">

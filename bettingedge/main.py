@@ -48,6 +48,23 @@ def _maybe_autoscrape_betclic():
     threading.Thread(target=run_betclic, kwargs={"headless": False}, daemon=True).start()
 
 
+def _autoresolve_pending_at_startup():
+    """Auto-résout les paris open dont le match est passé. Best-effort."""
+    try:
+        from backend.strategies.strategy_c import auto_resolve_pending_bets
+        db = SessionLocal()
+        try:
+            r = auto_resolve_pending_bets(db, max_bets=100)
+            if r["n_resolved"] > 0:
+                print(f"[autoresolve] {r['n_resolved']} paris résolus automatiquement (CLV calculé)")
+            elif r["n_processed"] > 0:
+                print(f"[autoresolve] 0 résolus / {r['n_processed']} en attente (matchs pas encore en data)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[autoresolve] erreur: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
@@ -58,6 +75,8 @@ async def lifespan(app: FastAPI):
         scheduler.start()
     if AUTOSCRAPE_ON_STARTUP:
         _maybe_autoscrape_betclic()
+    # Auto-résolution des paris terminés à chaque démarrage de l'app
+    _autoresolve_pending_at_startup()
     yield
     if scheduler:
         scheduler.shutdown()
@@ -572,6 +591,22 @@ def strategy_c_alerts(threshold: float = 0.05):
     try:
         movements = detect_line_movements(db, threshold)
         return {"status": "ok", "data": movements, "count": len(movements)}
+    finally:
+        db.close()
+
+
+@app.post("/api/strategy-c/auto-resolve")
+def strategy_c_auto_resolve(max_bets: int = 50):
+    """
+    Auto-résout les paris open dont le match a eu lieu.
+    Source : football-data.co.uk (score réel + Pinnacle closing).
+    Les paris dont le match n'est pas encore disponible sont skippés —
+    relance plus tard.
+    """
+    from backend.strategies.strategy_c import auto_resolve_pending_bets
+    db: Session = SessionLocal()
+    try:
+        return {"status": "ok", "data": auto_resolve_pending_bets(db, max_bets=max_bets)}
     finally:
         db.close()
 

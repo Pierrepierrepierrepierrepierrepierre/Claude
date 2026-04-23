@@ -4,6 +4,44 @@ document.addEventListener('DOMContentLoaded', () => {
   loadAlerts();
 });
 
+async function autoResolve() {
+  const btn = document.getElementById('bt-resolve');
+  const banner = document.getElementById('resolve-result');
+  btn.disabled = true;
+  btn.textContent = '⏳ Résolution en cours...';
+  banner.classList.add('hidden');
+
+  try {
+    const res = await API.post('/api/strategy-c/auto-resolve', {});
+    const r = res.data;
+    let cls = 'alert alert-warn';
+    let msg = '';
+    if (r.n_resolved > 0) {
+      cls = 'alert';
+      cls += r.n_resolved > 0 ? ' alert-ok' : '';
+      msg = `✓ ${r.n_resolved} pari(s) résolu(s) — CLV calculé via Pinnacle closing.`;
+    } else if (r.n_processed === 0) {
+      msg = 'Aucun pari open en BDD.';
+    } else {
+      msg = `0 résolus / ${r.n_processed} en attente. Les matchs ne sont pas encore dans football-data.co.uk (mis à jour ~quotidiennement après les matchs joués).`;
+    }
+    if (r.n_unknown_outcome) msg += ` ${r.n_unknown_outcome} niche(s) non reconnue(s).`;
+    if (r.errors && r.errors.length) msg += ` Erreurs : ${r.errors.join(' | ')}`;
+    banner.className = cls;
+    banner.textContent = msg;
+    banner.classList.remove('hidden');
+    // Recharger les KPIs et l'historique
+    loadCLV();
+  } catch (e) {
+    banner.className = 'alert alert-warn';
+    banner.textContent = 'Erreur : ' + (e.message || e);
+    banner.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔄 Résoudre les paris terminés';
+  }
+}
+
 async function loadCLV() {
   const strategy = document.getElementById('strat-filter').value;
   const loading = document.getElementById('clv-loading');
