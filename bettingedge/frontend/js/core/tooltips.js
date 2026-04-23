@@ -12,18 +12,19 @@ const TOOLTIPS = {
   sharp:       { short: "Parieur professionnel dont les mises font bouger les cotes.", anchor: "sharp" },
 };
 
-document.addEventListener("DOMContentLoaded", () => {
+function initTooltips() {
   let popup = null;
-
-  document.querySelectorAll("[data-tooltip]").forEach(el => {
-    const key = el.dataset.tooltip;
+  // Supporte les deux conventions : data-tooltip="key" et data-tip="key"
+  const els = document.querySelectorAll("[data-tooltip], [data-tip]");
+  els.forEach(el => {
+    const key = el.dataset.tooltip || el.dataset.tip;
     const def = TOOLTIPS[key];
     if (!def) return;
 
     el.classList.add("tooltip-trigger");
-    el.textContent = el.textContent || "?";
+    if (!el.textContent.trim()) el.textContent = "?";
 
-    el.addEventListener("mouseenter", e => {
+    el.addEventListener("mouseenter", () => {
       popup = document.createElement("div");
       popup.className = "tooltip-popup";
       popup.innerHTML = `${def.short} <br><a href="/docs#${def.anchor}">En savoir plus →</a>`;
@@ -32,9 +33,12 @@ document.addEventListener("DOMContentLoaded", () => {
       popup.style.left = `${r.left + window.scrollX}px`;
       popup.style.top  = `${r.bottom + window.scrollY + 6}px`;
     });
-
     el.addEventListener("mouseleave", () => {
       if (popup) { popup.remove(); popup = null; }
     });
   });
-});
+}
+
+// Auto-init au DOMContentLoaded ET expose globalement pour les pages qui appellent initTooltips() explicitement
+document.addEventListener("DOMContentLoaded", initTooltips);
+window.initTooltips = initTooltips;
