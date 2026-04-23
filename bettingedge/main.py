@@ -156,14 +156,35 @@ def dashboard(period_days: int = 0):
                 points = [{"x": points[0]["x"], "y": round(port.capital_initial, 2)}] + points
             series.append({"strategy": strategy, "points": points})
 
-        # Statut scrapers
+        # Statut scrapers — on prend le dernier OK (sinon dernier tout court)
+        # pour ne pas afficher d'erreur quand on a un succès plus récent
         scraper_statuses = {}
         for scraper in ["betclic", "fbref", "tennis_abstract"]:
-            last = db.query(ScraperLog).filter_by(scraper=scraper).order_by(ScraperLog.ran_at.desc()).first()
+            last_any = db.query(ScraperLog).filter_by(scraper=scraper) \
+                         .order_by(ScraperLog.ran_at.desc()).first()
+            last_ok  = db.query(ScraperLog).filter_by(scraper=scraper, status="ok") \
+                         .order_by(ScraperLog.ran_at.desc()).first()
+            # Si on a un OK plus récent (ou égal) que la dernière entrée en erreur, on
+            # affiche le OK pour ne pas polluer l'UI
+            chosen = last_any
+            if last_ok and (not last_any or last_ok.ran_at >= last_any.ran_at or last_any.status == "error"):
+                # Erreur plus récente seulement si > 1h après le dernier OK
+                if last_any and last_any.status == "error" and last_ok:
+                    if last_any.ran_at > last_ok.ran_at:
+                        # Erreur après le OK : on affiche l'erreur uniquement si elle date de < 6h
+                        from datetime import datetime, timezone, timedelta
+                        try:
+                            err_dt = datetime.fromisoformat(last_any.ran_at.replace("Z", "+00:00"))
+                            if (datetime.now(timezone.utc) - err_dt) > timedelta(hours=6):
+                                chosen = last_ok
+                        except Exception:
+                            pass
+                else:
+                    chosen = last_ok
             scraper_statuses[scraper] = {
-                "status": last.status if last else "jamais",
-                "ran_at": last.ran_at if last else None,
-                "message": last.message if last else None,
+                "status": chosen.status if chosen else "jamais",
+                "ran_at": chosen.ran_at if chosen else None,
+                "message": chosen.message if chosen else None,
             }
 
         scraper_error = next(
