@@ -54,7 +54,8 @@
             <option value="high">High only</option>
             <option value="medium">Medium+</option>
           </select>
-          <button class="btn-secondary btn-sm" onclick="reloadRecos()">↻ Actualiser</button>
+          <button class="btn-secondary btn-sm" onclick="reloadRecos()" title="Re-tourne le pipeline sur les cotes en BDD (~6s)">↻ Actualiser</button>
+          <button class="btn-secondary btn-sm" onclick="rescrapeBetclic()" title="Vrai scrape Betclic + pipeline (~5 min, ouvre fenêtre Chromium)">🔄 Rafraîchir cotes Betclic</button>
         </div>
       </div>
 

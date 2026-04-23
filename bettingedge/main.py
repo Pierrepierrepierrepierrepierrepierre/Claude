@@ -15,6 +15,38 @@ from config import settings
 
 PROD = os.getenv("BETTINGEDGE_PROD", "0") == "1"
 
+# Auto-scrape Betclic au démarrage de l'app si le dernier scrape est trop vieux.
+# Désactivable via env BETTINGEDGE_NO_AUTOSCRAPE=1.
+AUTOSCRAPE_ON_STARTUP = os.getenv("BETTINGEDGE_NO_AUTOSCRAPE", "0") != "1"
+AUTOSCRAPE_MAX_AGE_MIN = int(os.getenv("BETTINGEDGE_AUTOSCRAPE_AGE_MIN", "60"))
+
+
+def _maybe_autoscrape_betclic():
+    """Lance un scrape Betclic en thread séparé si le dernier date de > N min.
+    Évite de re-scraper si l'app redémarre plusieurs fois en peu de temps."""
+    from datetime import datetime, timezone, timedelta
+    from backend.db.models import ScraperLog
+    db = SessionLocal()
+    try:
+        last = db.query(ScraperLog).filter_by(scraper="betclic", status="ok") \
+                 .order_by(ScraperLog.ran_at.desc()).first()
+        if last:
+            try:
+                last_dt = datetime.fromisoformat(last.ran_at.replace("Z", "+00:00"))
+                age_min = (datetime.now(timezone.utc) - last_dt).total_seconds() / 60
+                if age_min < AUTOSCRAPE_MAX_AGE_MIN:
+                    print(f"[autoscrape] dernier scrape Betclic OK il y a {age_min:.0f} min — skip")
+                    return
+            except Exception:
+                pass
+    finally:
+        db.close()
+
+    print(f"[autoscrape] lancement Betclic au démarrage (background, fenêtre headed)...")
+    import threading
+    from backend.scrapers.betclic import run as run_betclic
+    threading.Thread(target=run_betclic, kwargs={"headless": False}, daemon=True).start()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -24,6 +56,8 @@ async def lifespan(app: FastAPI):
         from scheduler import make_scheduler
         scheduler = make_scheduler()
         scheduler.start()
+    if AUTOSCRAPE_ON_STARTUP:
+        _maybe_autoscrape_betclic()
     yield
     if scheduler:
         scheduler.shutdown()

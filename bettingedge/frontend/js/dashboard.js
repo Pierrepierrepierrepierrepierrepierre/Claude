@@ -198,6 +198,22 @@ function reloadRecos() {
     .catch(() => loadRecos());
 }
 
+async function rescrapeBetclic() {
+  if (!confirm('Lancer un scrape Betclic complet ? Une fenêtre Chromium va s\'ouvrir pour ~5 min. Ne la ferme pas.')) return;
+  try {
+    await API.post('/api/scraper/run?scraper=betclic', {});
+    const banner = document.createElement('div');
+    banner.className = 'alert alert-warn';
+    banner.style = 'margin:16px 0';
+    banner.innerHTML = '⏳ Scrape Betclic en cours (fenêtre Chromium ouverte)... Reviens dans ~5 min puis clique <strong>↻ Actualiser</strong>.';
+    const recosCard = document.querySelector('.card');
+    recosCard.parentNode.insertBefore(banner, recosCard);
+    setTimeout(() => banner.remove(), 60000);
+  } catch (e) {
+    alert('Erreur démarrage scraper : ' + e.message);
+  }
+}
+
 function renderRecos() {
   const sport = document.getElementById('recos-sport').value;
   const strategy = document.getElementById('recos-strategy').value;
