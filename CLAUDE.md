@@ -137,10 +137,33 @@
 - Section 'Diagnostic & maintenance scrapers' collapsée par défaut, fraîcheur colorée par scraper
 - Bug fixes : initTooltips défini, API helper sans double /api/api, scrapers logs filtrés (pas d'alerte si OK plus récent)
 
+**Session 2026-04-24 — Filtres backtest + niches tennis + Strat C auto + walk-forward (partiel) :**
+- Analyse backtest in-sample → 3 filtres ajoutés (commit d4a8afa) :
+  * ev_threshold_b : 0.02 → 0.10 (EV 2-5% perd -12% historiquement)
+  * disabled_niches : under_* (DC sous-prédit buts, ROI -7%)
+  * blacklist_combos : 1x2_draw:serie_a (-14.5%), 1x2_away:bundesliga (-4.9%)
+- Backtest in-sample post-filtres : 3014 paris → 706, ROI +4.58% → +28.54%
+- Tableau dynamique des paris (commits 737fb88, 5531943) : tri EV/profit/cote/date, filtres niche/ligue/résultat, limite 20/50/100/tous, export Excel multi-feuilles (commit ddab33b)
+- Stratégie C automatisée (commit 669ffab) : auto_resolve_pending_bets() trigger au démarrage + bouton manuel sur /strategy-c. Fetch score + Pinnacle closing depuis football-data, calcule CLV auto.
+- Niches tennis Aces + Tie-break wirées (commit d954181) : _scrape_match_secondary_tennis onglets 'Points & Service' + 'Jeux'. Betclic n'expose que + de X (pas - de), adapté pour ne pas exiger l'Under.
+- Pipeline niches actives : 1x2_home/draw/away + over_X + btts_yes/no + tennis_winner + aces_over_X + tiebreak_yes/no (7 niches).
+
+**Walk-forward backtest :** 🟡 en cours (2026-04-24)
+- `backend/learning/backtest_walkforward.py` codé (NON committé)
+- But : valider OOS en calibrant DC mois par mois uniquement sur les mois antérieurs
+- Premier lancement bloqué (calibration MLE trop coûteuse sur tous mois avec 120 équipes). Raised MIN_TRAINING_MATCHES à 300.
+- À reprendre : relancer avec `python -u` (unbuffered) pour voir progression, puis wirer endpoint API + section frontend
+
+**Biais identifiés dans les backtests actuels :**
+1. In-sample bias (modèle calibré sur matchs testés) → résolu par walk-forward (pas encore tourné)
+2. Overfitting des filtres (ev_threshold=0.10, blacklist) optimisés sur le backtest → biais résiduel même avec walk-forward
+- Verdict honnête : ROI +28% in-sample = FAUX. ROI réel estimé 5-12% en live.
+
 **Prochaine étape (au choix) :**
-A. Phase 1 reste : corners (page-match onglet Corners) + cartons (data stats arbitres à trouver)
-B. Phase 2 — Epic 7 Moteur d'apprentissage (Brier glissant, Bayesian update, error analysis, niches dégradées)
-C. Phase 3 — Documentation + tooltips (Epic 8)
+A. Finir walk-forward backtest + wirer endpoint/UI (validation OOS = priorité)
+B. Phase 1 reste : corners + cartons + double fautes tennis
+C. Phase 2 — Epic 7 Moteur d'apprentissage (prématuré tant que 0 pari résolu live)
+D. Phase 3 — Documentation + tooltips
 
 **Ordre des Epics prévu :**
 1. Epic 0 — Setup projet (structure, BDD, FastAPI base)

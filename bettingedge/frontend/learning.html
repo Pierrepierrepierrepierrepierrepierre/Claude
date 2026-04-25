@@ -2,9 +2,8 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>BettingEdge — Backtest & Apprentissage</title>
+  <title>BettingEdge — Backtest</title>
   <link rel="stylesheet" href="/static/css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
   <nav class="sidebar">
@@ -22,133 +21,124 @@
     <div class="page-header">
       <h1>📊 Backtest Stratégie B</h1>
       <p class="subtitle">
-        Rejoue la stratégie sur les ~1700 matchs déjà joués cette saison
-        (cotes Pinnacle closing).
-        <strong>⚠️ In-sample</strong> — le modèle DC est calibré sur ces matchs,
-        donc le ROI est optimiste vs ce qu'on aura en live.
+        Pour chaque mois choisi, le modèle Dixon-Coles est calibré
+        <strong>uniquement sur les matchs antérieurs</strong> à ce mois (zéro look-ahead bias).
+        Cotes Pinnacle closing comme proxy "Betclic". Résultats out-of-sample =
+        ce qu'aurait vraiment vécu un parieur live.
       </p>
     </div>
 
+    <!-- Form unique -->
     <section class="card">
       <div class="card-header">
-        <h2>Paramètres</h2>
+        <h2>Paramètres du test</h2>
+        <span class="badge alert-ok" style="padding:4px 10px">✓ Sans biais</span>
       </div>
-      <form id="bt-form" onsubmit="runBacktest(event)" class="form-grid" style="align-items:end">
-        <div class="form-group">
-          <label>Seuil EV minimum (défaut 10%)</label>
-          <input type="number" id="bt-ev" value="0.10" step="0.01" min="0" max="0.50">
-          <small class="text-muted">L'analyse a montré que EV<10% perd en moyenne</small>
+
+      <form id="bt-form" onsubmit="runBacktest(event)">
+        <div class="form-grid" style="align-items:start">
+          <div class="form-group">
+            <label>Seuil EV minimum</label>
+            <input type="number" id="bt-ev" value="0.10" step="0.01" min="0" max="0.50">
+            <small class="text-muted">Backtest a montré que EV<10% perd en moyenne</small>
+          </div>
+          <div class="form-group">
+            <label>Mise flat (€)</label>
+            <input type="number" id="bt-stake" value="10" step="1" min="1">
+          </div>
+          <div class="form-group">
+            <label>Mois à tester
+              <small class="text-muted">(Ctrl+clic = sélection multiple, vide = tous)</small>
+            </label>
+            <select id="bt-months" multiple size="6" style="height:140px"></select>
+            <small class="text-muted" id="bt-months-help">Chargement…</small>
+          </div>
+          <div class="form-group">
+            <label>Ligues (vide = toutes)</label>
+            <select id="bt-leagues" multiple size="6" style="height:140px">
+              <option value="ligue1">Ligue 1</option>
+              <option value="premier_league">Premier League</option>
+              <option value="liga">La Liga</option>
+              <option value="serie_a">Serie A</option>
+              <option value="bundesliga">Bundesliga</option>
+              <option value="ligue2">Ligue 2</option>
+            </select>
+          </div>
         </div>
-        <div class="form-group">
-          <label>Mise flat (€)</label>
-          <input type="number" id="bt-stake" value="10" step="1" min="1">
-        </div>
-        <div class="form-group">
-          <label>Ligues (vide = toutes)</label>
-          <select id="bt-leagues" multiple size="4" style="height:90px">
-            <option value="ligue1">Ligue 1</option>
-            <option value="premier_league">Premier League</option>
-            <option value="liga">La Liga</option>
-            <option value="serie_a">Serie A</option>
-            <option value="bundesliga">Bundesliga</option>
-            <option value="ligue2">Ligue 2</option>
-          </select>
-          <small class="text-muted">Ctrl+clic pour sélection multiple</small>
-        </div>
-        <div class="form-group">
-          <button type="submit" class="btn-primary" id="bt-submit">▶ Lancer le backtest</button>
-        </div>
-        <div class="form-group">
+
+        <div style="display:flex;gap:12px;margin-top:16px;align-items:center">
+          <button type="submit" class="btn-primary" id="bt-submit">
+            ▶ Lancer le backtest
+          </button>
           <a href="/api/backtest/export.xlsx" class="btn-secondary" download
-             title="Télécharge tous les paris + breakdowns en Excel multi-feuilles">
-            📥 Exporter Excel
-          </a>
+             title="Excel multi-feuilles du dernier backtest">📥 Exporter Excel</a>
+          <small class="text-muted" id="bt-time-hint">
+            Durée : ~1-2 min/mois testé (calibration MLE par ligue).
+          </small>
         </div>
       </form>
     </section>
 
-    <p class="loading hidden" id="bt-loading">Backtest en cours… ~5-10 sec</p>
+    <p class="loading hidden" id="bt-loading" style="margin-top:12px">
+      Backtest en cours… Le calcul tourne en arrière-plan, tu peux quitter cette page sans risque.
+    </p>
 
     <div id="bt-results" class="hidden">
       <!-- KPIs globaux -->
       <section class="card">
-        <div class="card-header"><h2>Résultats globaux</h2></div>
+        <div class="card-header">
+          <h2>Résultats out-of-sample</h2>
+        </div>
         <div class="kpi-grid">
-          <div class="kpi-card">
-            <h3>Paris simulés</h3>
-            <div class="kpi-value" id="bt-n">—</div>
-          </div>
-          <div class="kpi-card">
-            <h3>Hit rate</h3>
-            <div class="kpi-value" id="bt-hit">—</div>
-          </div>
-          <div class="kpi-card">
-            <h3>ROI</h3>
-            <div class="kpi-value" id="bt-roi">—</div>
-            <div class="kpi-meta" id="bt-roi-meta">—</div>
-          </div>
-          <div class="kpi-card">
-            <h3>Profit</h3>
-            <div class="kpi-value" id="bt-profit">—</div>
-            <div class="kpi-meta">sur <span id="bt-stake-tot">0</span>€ misés</div>
-          </div>
+          <div class="kpi-card"><h3>Paris</h3><div class="kpi-value" id="bt-n">—</div><div class="kpi-meta" id="bt-months-tested">—</div></div>
+          <div class="kpi-card"><h3>ROI OOS</h3><div class="kpi-value" id="bt-roi">—</div><div class="kpi-meta" id="bt-roi-meta">—</div></div>
+          <div class="kpi-card"><h3>Profit</h3><div class="kpi-value" id="bt-profit">—</div><div class="kpi-meta">sur <span id="bt-stake-tot">0</span>€ misés</div></div>
+          <div class="kpi-card"><h3>Hit rate</h3><div class="kpi-value" id="bt-hit">—</div></div>
         </div>
       </section>
 
-      <!-- Breakdown par niche -->
+      <!-- Mois par mois -->
+      <section class="card">
+        <div class="card-header"><h2>Performance mois par mois</h2></div>
+        <table class="data-table">
+          <thead><tr><th>Mois</th><th>Train</th><th>Matchs</th><th>Paris</th><th>Hit rate</th><th>ROI</th><th>Profit</th><th>Cumulé</th></tr></thead>
+          <tbody id="bt-months-body"></tbody>
+        </table>
+      </section>
+
+      <!-- Par niche -->
       <section class="card">
         <div class="card-header"><h2>Performance par niche</h2></div>
         <table class="data-table">
-          <thead>
-            <tr><th>Niche</th><th>Paris</th><th>Hit rate</th><th>ROI</th><th>Profit</th></tr>
-          </thead>
+          <thead><tr><th>Niche</th><th>Paris</th><th>Hit rate</th><th>ROI</th><th>Profit</th></tr></thead>
           <tbody id="bt-niche-body"></tbody>
         </table>
       </section>
 
-      <!-- Breakdown par ligue -->
-      <section class="card">
-        <div class="card-header"><h2>Performance par ligue</h2></div>
-        <table class="data-table">
-          <thead>
-            <tr><th>Ligue</th><th>Paris</th><th>ROI</th><th>Profit</th></tr>
-          </thead>
-          <tbody id="bt-league-body"></tbody>
-        </table>
-      </section>
-
-      <!-- Détail des paris (dynamique : tri + filtre + pagination) -->
+      <!-- Détail des paris -->
       <section class="card">
         <div class="card-header">
-          <h2>Détail des paris simulés (<span id="bt-bets-count">0</span>)</h2>
+          <h2>Détail des paris (<span id="bt-bets-count">0</span>)</h2>
           <div class="filter-bar">
-            <label style="font-size:0.82rem;color:var(--text-muted)">Tri :</label>
             <select id="bt-sort" onchange="renderBetsTable()">
               <option value="ev_desc">EV ↓ (meilleurs)</option>
-              <option value="ev_asc">EV ↑ (pires)</option>
+              <option value="ev_asc">EV ↑</option>
               <option value="profit_desc">Profit ↓</option>
               <option value="profit_asc">Profit ↑ (pires pertes)</option>
               <option value="odds_desc">Cote ↓</option>
               <option value="odds_asc">Cote ↑</option>
               <option value="abs_ev_desc">|EV| extrême</option>
-              <option value="date_desc">Date récent → ancien</option>
-              <option value="date_asc">Date ancien → récent</option>
+              <option value="date_desc">Date récent</option>
+              <option value="date_asc">Date ancien</option>
             </select>
-
-            <select id="bt-filter-niche" onchange="renderBetsTable()">
-              <option value="">Toutes niches</option>
-            </select>
-
-            <select id="bt-filter-league" onchange="renderBetsTable()">
-              <option value="">Toutes ligues</option>
-            </select>
-
+            <select id="bt-filter-month" onchange="renderBetsTable()"><option value="">Tous mois</option></select>
+            <select id="bt-filter-niche" onchange="renderBetsTable()"><option value="">Toutes niches</option></select>
+            <select id="bt-filter-league" onchange="renderBetsTable()"><option value="">Toutes ligues</option></select>
             <select id="bt-filter-result" onchange="renderBetsTable()">
-              <option value="">Tous résultats</option>
+              <option value="">Tous</option>
               <option value="won">Gagnés</option>
               <option value="lost">Perdus</option>
             </select>
-
             <select id="bt-limit" onchange="renderBetsTable()">
               <option value="20">20 lignes</option>
               <option value="50">50</option>
@@ -158,9 +148,7 @@
           </div>
         </div>
         <table class="data-table">
-          <thead>
-            <tr><th>Date</th><th>Match</th><th>Ligue</th><th>Niche</th><th>P</th><th>Cote</th><th>EV</th><th>Mise</th><th>Profit</th><th>Résultat</th></tr>
-          </thead>
+          <thead><tr><th>Mois</th><th>Date</th><th>Match</th><th>Ligue</th><th>Niche</th><th>P</th><th>Cote</th><th>EV</th><th>Profit</th><th>Résultat</th></tr></thead>
           <tbody id="bt-bets-body"></tbody>
         </table>
       </section>

@@ -728,100 +728,142 @@ _BACKTEST_CACHE: dict = {}
 
 @app.post("/api/backtest/run")
 def backtest_run(
-    ev_threshold: float = 0.02,
+    ev_threshold: float = 0.10,
     flat_stake: float = 10.0,
-    leagues: Optional[str] = None,  # CSV ex "ligue1,premier_league"
+    leagues: Optional[str] = None,    # CSV ex "ligue1,premier_league"
+    months: Optional[str] = None,     # CSV ex "2025-10,2025-11" — vide = tous
 ):
     """
-    Rejoue la Stratégie B sur les CSVs football-data (~1700 matchs).
-    Cotes Pinnacle closing comme proxy 'Betclic'.
-    Retourne les KPIs (ROI, hit rate, breakdown par niche/ligue).
+    Backtest walk-forward UNIQUEMENT (zéro biais d'entraînement).
+    Pour chaque mois cible, le modèle DC est calibré uniquement sur les
+    matchs antérieurs. Cotes Pinnacle closing = proxy "Betclic".
 
-    ⚠️ In-sample (DC calibré sur ces mêmes matchs) → ROI optimiste.
+    Params :
+      - ev_threshold : seuil EV minimum (défaut 0.10)
+      - flat_stake   : mise constante € (défaut 10)
+      - leagues      : ligues testées (CSV) — None = toutes
+      - months       : mois testés (CSV "YYYY-MM") — None = tous
     """
-    from backend.learning.backtest import run_backtest
-    leagues_list = leagues.split(",") if leagues else None
+    from backend.learning.backtest_walkforward import run_walkforward
+    leagues_list = [s.strip() for s in leagues.split(",") if s.strip()] if leagues else None
+    months_list  = [s.strip() for s in months.split(",")  if s.strip()] if months  else None
     try:
-        result = run_backtest(
-            ev_threshold=ev_threshold,
+        result = run_walkforward(
             flat_stake=flat_stake,
-            leagues=leagues_list,
+            target_months=months_list,
+            leagues_filter=leagues_list,
+            ev_threshold=ev_threshold,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-    summary = result.summary()
-    # Stocke aussi l'objet BacktestResult complet pour l'export Excel
-    _BACKTEST_CACHE["last_result"] = result
-    _BACKTEST_CACHE["last"] = {
-        "summary": summary,
-        "bets": [{
-            "league": b.league, "date": b.date,
-            "match": f"{b.home} - {b.away}",
-            "niche": b.niche,
-            "p": round(b.p_estimated * 100, 2),
-            "odds": b.odds_taken,
-            "ev_pct": round(b.ev_expected * 100, 2),
-            "stake": b.stake,
-            "won": b.won,
-            "profit": b.profit,
-        } for b in result.bets],
-        "params": {
-            "ev_threshold": ev_threshold,
-            "flat_stake":  flat_stake,
-            "leagues":     leagues_list or list(LEAGUES_KEYS),
-        },
-    }
-    return {"status": "ok", "data": summary}
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    _BACKTEST_CACHE["last"] = result
+    return {"status": "ok", "data": result}
 
 
-# Liste des ligues exposée pour le frontend
 LEAGUES_KEYS = ["ligue1", "premier_league", "liga", "serie_a", "bundesliga", "ligue2"]
 
 
 @app.get("/api/backtest/last")
-def backtest_last(limit: int = 0):
-    """Renvoie le résultat du dernier backtest.
-
-    `limit=0` (défaut) → renvoie TOUS les paris (706 dans le cas standard).
-    Le frontend gère tri/filtres/pagination côté client (rapide < 1000 lignes).
-    """
+def backtest_last():
+    """Renvoie le dernier backtest (walk-forward) en cache."""
     cached = _BACKTEST_CACHE.get("last")
     if not cached:
         return {"status": "empty", "message": "Aucun backtest lancé pour l'instant"}
-    bets = cached["bets"]
-    if limit > 0:
-        # Tri par |EV| décroissant pour exposer les plus extrêmes
-        bets = sorted(bets, key=lambda b: -abs(b["ev_pct"]))[:limit]
+    return {"status": "ok", "data": cached}
+
+
+@app.get("/api/backtest/months")
+def backtest_months():
+    """Liste les mois disponibles dans les données football-data (pour le formulaire)."""
+    from backend.learning.backtest_walkforward import _fetch_all_leagues
+    df = _fetch_all_leagues()
+    if df.empty:
+        return {"status": "empty", "months": []}
+    df["month"] = df["date_dt"].dt.strftime("%Y-%m")
+    months = sorted(df["month"].unique())
+    n_per_month = df.groupby("month").size().to_dict()
     return {
         "status": "ok",
-        "summary": cached["summary"],
-        "sample_bets": bets,        # alias historique
-        "all_bets":    cached["bets"],  # tous les paris pour le tableau dynamique
-        "params": cached["params"],
+        "months": months,
+        "n_per_month": {m: int(n_per_month.get(m, 0)) for m in months},
     }
 
 
 @app.get("/api/backtest/export.xlsx")
 def backtest_export_xlsx():
-    """Télécharge le dernier backtest en Excel multi-feuilles."""
+    """Export Excel multi-feuilles du dernier walk-forward (Summary, Months,
+    By niche, By league, Bets)."""
     from fastapi.responses import Response
-    from backend.learning.backtest import run_backtest
-    from backend.learning.backtest_export import export_to_xlsx
-
-    cached = _BACKTEST_CACHE.get("last_result")
-    params = (_BACKTEST_CACHE.get("last") or {}).get("params") or {}
-
-    # Si pas de résultat en cache, on relance un backtest avec les params par défaut
-    if cached is None:
-        cached = run_backtest()
-        _BACKTEST_CACHE["last_result"] = cached
-
-    blob = export_to_xlsx(cached, params=params)
     from datetime import datetime
+    import io
+    import pandas as pd
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils.dataframe import dataframe_to_rows
+
+    cached = _BACKTEST_CACHE.get("last")
+    if not cached:
+        raise HTTPException(status_code=400, detail="Aucun backtest en cache — lance d'abord /api/backtest/run")
+
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    def _style(ws):
+        for c in ws[1]:
+            c.font = Font(bold=True, color="FFFFFF")
+            c.fill = PatternFill("solid", fgColor="2C3E50")
+
+    # Summary
+    ws = wb.create_sheet("Summary")
+    t = cached["totals"]
+    rows = [
+        ("Métrique", "Valeur"),
+        ("Mois testés",       t["n_months_tested"]),
+        ("Paris OOS",         t["n_bets"]),
+        ("Hit rate",          f"{t['hit_rate_pct']}%"),
+        ("Mise totale",       f"{t['total_stake']} €"),
+        ("Profit total",      f"{t['total_profit']} €"),
+        ("ROI OOS",           f"{t['roi_pct']}%"),
+        ("", ""),
+        ("Paramètres", ""),
+        *[(k, str(v)) for k, v in (cached.get("params") or {}).items()],
+    ]
+    for r in rows:
+        ws.append(list(r))
+    _style(ws)
+
+    # Months
+    ws = wb.create_sheet("Months")
+    if cached.get("months"):
+        df_m = pd.DataFrame(cached["months"]).drop(columns=["by_niche"], errors="ignore")
+        for row in dataframe_to_rows(df_m, index=False, header=True):
+            ws.append(row)
+        _style(ws)
+
+    # By niche
+    ws = wb.create_sheet("By niche")
+    df_n = pd.DataFrame([{"niche": k, **v} for k, v in (cached.get("by_niche") or {}).items()])
+    if not df_n.empty:
+        df_n = df_n.sort_values("roi_pct", ascending=False)
+        for row in dataframe_to_rows(df_n, index=False, header=True):
+            ws.append(row)
+        _style(ws)
+
+    # Bets
+    ws = wb.create_sheet("Bets")
+    df_b = pd.DataFrame(cached.get("all_bets") or [])
+    if not df_b.empty:
+        for row in dataframe_to_rows(df_b, index=False, header=True):
+            ws.append(row)
+        _style(ws)
+
+    buf = io.BytesIO()
+    wb.save(buf)
     fname = f"backtest_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     return Response(
-        content=blob,
+        content=buf.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )
